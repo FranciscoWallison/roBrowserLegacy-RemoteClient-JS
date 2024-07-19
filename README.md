@@ -20,6 +20,18 @@ Overwrite the `BGM/`, `data/` and `System/` directories with your own folders.
 
  ### Configure the remote client ### 
 
-Open *configs.php* file and complete it
+Open *config/configs.js file and complete it
 
 ----------------
+
+### GET START
+Install the packages
+
+```
+npm i
+```
+
+Start the project
+```
+npm run start
+```
