@@ -12,7 +12,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use(debugMiddleware);
 
 // Rotas da API
-app.use('/client', routes);
+app.use('/', routes);
 
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);

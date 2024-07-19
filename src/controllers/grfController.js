@@ -29,9 +29,6 @@ class Grf {
 			console.error("GRF not loaded or not initialized");
 			return null;
 		}
-		console.log("===========getFile=============");
-		console.log(filename);
-		console.log("====================================");
 		try {
 			const { data, error } = await this.grf.getFile(filename);
 			if (error) {
@@ -40,10 +37,7 @@ class Grf {
 			}
 			return Buffer.from(data);
 		} catch (error) {
-			// console.log("===========getFile===============");
-			console.log(filename);
 			console.error(`Error extracting file: ${error}`);
-			// console.log("====================================");
 			return null;
 		}
 	}

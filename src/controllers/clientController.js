@@ -42,9 +42,6 @@ const Client = {
     for (const grf of this.grfs) {
       if (grf && grf.getFile) {
         const fileContent = await grf.getFile(grfFilePath);
-        console.log('===========fileContent==============');
-        console.log(fileContent);
-        console.log('====================================');
         if (fileContent) {
           // Salvar o arquivo na pasta de dados se AutoExtract estiver habilitado
           if (this.AutoExtract) {
