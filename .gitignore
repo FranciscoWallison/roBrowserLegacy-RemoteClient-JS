@@ -1,0 +1,10 @@
+/BGM/*
+/data/*
+/resources/*
+/System/*
+/node_modules/*
+/dist/
+/node_modules/
+
+#
+package-lock.json

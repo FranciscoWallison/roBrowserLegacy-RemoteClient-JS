@@ -1,0 +1,16 @@
+{
+	"name": "robrowser",
+	"version": "1.0.0",
+	"description": "roBrowser and Express server unified project",
+	"main": "index.js",
+	"scripts": {
+		"start": "node index.js"
+	},
+	"author": "Vincent Thibault",
+	"license": "GNU GPL V3",
+	"dependencies": {
+		"cors": "^2.8.5",
+		"express": "^4.17.1",
+		"grf-loader": "^0.0.2"
+	}
+}
