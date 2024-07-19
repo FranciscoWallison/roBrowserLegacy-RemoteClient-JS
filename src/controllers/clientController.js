@@ -10,9 +10,10 @@ const Client = {
   AutoExtract: configs.CLIENT_AUTOEXTRACT,
 
   async init() {
-    this.data_ini = path.join(__dirname, '..', configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+    this.data_ini = path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+
     if (!fs.existsSync(this.data_ini)) {
-      console.error('DATA.INI file not found:', this.data_ini);
+      // console.error('DATA.INI file not found:', this.data_ini);
       return;
     }
 
@@ -20,7 +21,7 @@ const Client = {
     const dataIni = parseIni(dataIniContent);
     this.grfs = await Promise.all(
       dataIni.Data.map(async grfPath => {
-        const grf = new Grf(path.join(__dirname, '..', configs.CLIENT_RESPATH, grfPath));
+        const grf = new Grf(path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, grfPath));
         await grf.load();
         return grf;
       })
@@ -30,7 +31,7 @@ const Client = {
   async getFile(filePath) {
     // Converter barras para barras invertidas
     const grfFilePath = filePath.replace(/\//g, '\\');
-    let localPath = path.join(__dirname, '..', filePath);
+    let localPath = path.join(__dirname, '..', '..', filePath);
 
     // Verificar se o arquivo já existe na pasta de dados
     if (fs.existsSync(localPath)) {

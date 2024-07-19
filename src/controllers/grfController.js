@@ -40,10 +40,10 @@ class Grf {
 			}
 			return Buffer.from(data);
 		} catch (error) {
-			console.log("===========getFile===============");
+			// console.log("===========getFile===============");
 			console.log(filename);
 			console.error(`Error extracting file: ${error}`);
-			console.log("====================================");
+			// console.log("====================================");
 			return null;
 		}
 	}
