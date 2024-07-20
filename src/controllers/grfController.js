@@ -1,4 +1,4 @@
-const { GrfNode } = require("grf-loader");
+const { GrfNode } = require("@chicowall/grf-loader");
 const fs = require("fs");
 
 class Grf {

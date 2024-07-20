@@ -1,4 +1,4 @@
-const GrfNode = require("grf-loader").GrfNode;
+const GrfNode = require("@chicowall/grf-loader").GrfNode;
 const { openSync, existsSync } = require("fs");
 const path = require("path");
 

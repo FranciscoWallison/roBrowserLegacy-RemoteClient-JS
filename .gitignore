@@ -9,6 +9,7 @@
 /node_modules/*
 /dist/
 /node_modules/
-
+/.yarn
 #
 package-lock.json
+yarn.lock
