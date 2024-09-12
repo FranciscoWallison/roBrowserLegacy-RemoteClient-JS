@@ -22,6 +22,12 @@ router.post('/search', (req, res) => {
 
 router.get('/*', async (req, res) => {
   const filePath = req.params[0];
+
+  if (filePath === '') {
+    res.type(path.extname('index.html'));
+    return res.send(fs.readFileSync('index.html','utf8'));
+  }
+  
   const fileContent = await Client.getFile(filePath);
 
   if (!fileContent) {
