@@ -3,10 +3,16 @@ const path = require('path');
 const cors = require('cors');
 const app = express();
 const port = process.env.PORT || 3338;
-const routes = require('./src/routes'); // ajuste este caminho conforme necessário
-const debugMiddleware = require('./src/middlewares/debugMiddleware'); // ajuste este caminho conforme necessário
+const routes = require('./src/routes'); // adjust this if necessary
+const debugMiddleware = require('./src/middlewares/debugMiddleware'); // adjust this if necessary
 
-app.use(cors()); // Adicionar esta linha
+// CORS setup. change example.com to your roBrowser ip/domain and http://localhost:3338 (if necessary) to the domain/port where your client is running
+const corsOptions = {
+  origin: ['https://example.com', 'http://localhost:3338'],
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
+  credentials: true,
+};
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(debugMiddleware);
