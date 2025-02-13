@@ -13,14 +13,14 @@ const Client = {
     this.data_ini = path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
 
     if (!fs.existsSync(this.data_ini)) {
-      // console.error('DATA.INI file not found:', this.data_ini);
+      console.error('DATA.INI file not found:', this.data_ini);
       return;
     }
 
     const dataIniContent = fs.readFileSync(this.data_ini, 'utf-8');
     const dataIni = parseIni(dataIniContent);
     this.grfs = await Promise.all(
-      dataIni.Data.map(async grfPath => {
+      dataIni.data.map(async grfPath => {
         const grf = new Grf(path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, grfPath));
         await grf.load();
         return grf;
