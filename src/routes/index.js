@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const fs = require('fs);
+const fs = require('fs');
 const router = express.Router();
 const Client = require('../controllers/clientController');
 const configs = require('../config/configs');
@@ -21,6 +21,12 @@ router.post('/search', (req, res) => {
   res.send(files.join('\n'));
 });
 
+// Nova rota para listar arquivos
+router.get('/list-files', async (req, res) => {
+  const files = Client.listFiles();
+  res.json(files);
+});
+
 router.get('/*', async (req, res) => {
   const filePath = req.params[0];
 
@@ -37,12 +43,6 @@ router.get('/*', async (req, res) => {
 
   res.type(path.extname(filePath));
   res.send(fileContent);
-});
-
-// Nova rota para listar arquivos
-router.get('/list-files', async (req, res) => {
-  const files = Client.listFiles();
-  res.json(files);
 });
 
 module.exports = router;
