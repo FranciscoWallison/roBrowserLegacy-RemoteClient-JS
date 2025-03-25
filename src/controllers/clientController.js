@@ -61,7 +61,7 @@ const Client = {
       }
     }
 
-		console.error(`File not found: ${grfFilePath}`);
+    console.error(`File not found: ${grfFilePath}`);
     return null;
   },
 
