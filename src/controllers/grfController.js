@@ -1,8 +1,9 @@
 const { GrfNode } = require("@chicowall/grf-loader");
 const fs = require("fs");
-
+const path = require("path");
 class Grf {
 	constructor(filePath) {
+		this.fileName = path.basename(filePath);
 		this.filePath = filePath;
 		this.grf = null;
 		this.loaded = false;
@@ -32,7 +33,6 @@ class Grf {
 		try {
 			const { data, error } = await this.grf.getFile(filename);
 			if (error) {
-				console.error(`Error getting file from GRF: ${error}`);
 				return null;
 			}
 			return Buffer.from(data);

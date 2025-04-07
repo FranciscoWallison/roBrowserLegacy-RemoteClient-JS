@@ -35,6 +35,7 @@ const Client = {
 
     // Verificar se o arquivo já existe na pasta de dados
     if (fs.existsSync(localPath)) {
+      console.error(`File found on folder: ${grfFilePath}`);
       return fs.readFileSync(localPath);
     }
 
@@ -51,6 +52,8 @@ const Client = {
             }
             fs.writeFileSync(localPath, fileContent);
           }
+          
+          console.error(`File found on ${grf.fileName}: ${grfFilePath}`);
           return fileContent;
         }
       } else {
@@ -58,6 +61,7 @@ const Client = {
       }
     }
 
+    console.error(`File not found: ${grfFilePath}`);
     return null;
   },
 
