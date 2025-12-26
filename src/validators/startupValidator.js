@@ -160,41 +160,29 @@ class StartupValidator {
       }
 
       // Validar versão e criptografia do GRF
-      const validation = this.validateGrfFormat(grfPath);
+      const validation = await this.validateGrfFormat(grfPath);
       grfResults.push({ file: grfFile, exists: true, ...validation });
 
       if (!validation.valid) {
         // Construir mensagem de erro específica
         let errorMsg = `GRF incompatível: ${grfFile}\n`;
-        const issues = [];
 
-        // Verificar qual é o problema específico
-        const version = parseInt(validation.version.replace('0x', ''), 16);
-        const isVersionWrong = version !== 0x200;
-        const hasEncryption = validation.hasEncryption;
-
-        if (isVersionWrong) {
-          issues.push(`  ❌ Versão: ${validation.version} (esperado: 0x200)`);
+        if (validation.version && validation.version !== '0x200' && validation.version !== 'unknown') {
+          errorMsg += `  ❌ Versão: ${validation.version} (esperado: 0x200)\n`;
         }
 
-        if (hasEncryption) {
-          issues.push(`  ❌ Criptografia DES: SIM (esperado: NÃO)`);
-        }
-
-        if (issues.length > 0) {
-          errorMsg += issues.join('\n') + '\n\n';
-        }
-
-        errorMsg += `  📦 SOLUÇÃO: Reempacotar com GRF Builder:\n`;
-        errorMsg += `  1. Abra o GRF Builder\n`;
-        errorMsg += `  2. File → Options → Repack type → Decrypt\n`;
-        errorMsg += `  3. Clique em: Tools → Repack\n`;
-        errorMsg += `  4. Aguarde a conclusão e substitua o arquivo original`;
+        errorMsg += `  ❌ ${validation.reason}\n`;
+        errorMsg += `\n  📦 SOLUÇÃO: Reempacotar com GRF Builder:\n`;
+        errorMsg += `  1. Baixe o GRF Builder: https://github.com/Tokeiburu/GRFEditor\n`;
+        errorMsg += `  2. Abra o GRF Builder\n`;
+        errorMsg += `  3. File → Options → Repack type → Decrypt\n`;
+        errorMsg += `  4. Clique em: Tools → Repack\n`;
+        errorMsg += `  5. Aguarde a conclusão e substitua o arquivo original`;
 
         this.addError(errorMsg);
         hasInvalidGrf = true;
       } else {
-        this.addInfo(`GRF válido: ${grfFile} (versão 0x200, sem DES)`);
+        this.addInfo(`GRF válido: ${grfFile} (versão 0x200, compatível com biblioteca)`);
       }
     }
 
@@ -241,50 +229,95 @@ class StartupValidator {
 
   /**
    * Valida formato do arquivo GRF
-   * Verifica versão 0x200 e ausência de criptografia DES
+   * Testa se a biblioteca @chicowall/grf-loader consegue ler o GRF
    */
-  validateGrfFormat(grfPath) {
-    try {
-      const fd = fs.openSync(grfPath, 'r');
-      const buffer = Buffer.alloc(46); // Header GRF é 46 bytes
-      fs.readSync(fd, buffer, 0, 46, 0);
-      fs.closeSync(fd);
+  async validateGrfFormat(grfPath) {
+    const { GrfNode } = require('@chicowall/grf-loader');
 
-      // Magic bytes: "Master of Magic" (15 bytes)
+    let fd = null;
+    try {
+      // Abrir arquivo
+      fd = fs.openSync(grfPath, 'r');
+
+      // Ler header para verificar versão
+      const buffer = Buffer.alloc(46);
+      fs.readSync(fd, buffer, 0, 46, 0);
+
+      // Magic bytes
       const magic = buffer.toString('ascii', 0, 15);
       if (magic !== 'Master of Magic') {
+        if (fd) fs.closeSync(fd);
         return {
           valid: false,
           version: 'unknown',
-          hasEncryption: false,
-          reason: 'Magic bytes inválidos'
+          compatible: false,
+          reason: 'Magic bytes inválidos - não é um arquivo GRF válido'
         };
       }
 
-      // Encryption key (14 bytes no offset 15)
-      const encryptionKey = buffer.slice(15, 29);
-
-      // Version (offset 42, 4 bytes, little-endian)
+      // Versão
       const version = buffer.readUInt32LE(42);
       const versionHex = '0x' + version.toString(16).toUpperCase();
 
-      // Verificar se tem criptografia DES (encryption key não é zero)
-      const hasEncryption = !encryptionKey.every(byte => byte === 0);
+      // Verificar versão
+      if (version !== 0x200) {
+        if (fd) fs.closeSync(fd);
+        return {
+          valid: false,
+          version: versionHex,
+          compatible: false,
+          reason: `Versão ${versionHex} não suportada (esperado: 0x200)`
+        };
+      }
 
-      const isValid = version === 0x200 && !hasEncryption;
+      // TESTE REAL: Tentar carregar com a biblioteca
+      // Reabrir o arquivo para o GrfNode
+      const testFd = fs.openSync(grfPath, 'r');
+      const grf = new GrfNode(testFd);
 
-      return {
-        valid: isValid,
-        version: versionHex,
-        hasEncryption,
-        reason: isValid ? 'OK' : 'Versão ou criptografia incompatível'
-      };
+      try {
+        // Tentar carregar (com timeout de 10 segundos)
+        const loadPromise = grf.load();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error('Timeout ao carregar GRF')), 10000)
+        );
+
+        await Promise.race([loadPromise, timeoutPromise]);
+
+        // Se chegou aqui, o GRF é compatível!
+        fs.closeSync(testFd);
+        if (fd) fs.closeSync(fd);
+
+        return {
+          valid: true,
+          version: versionHex,
+          compatible: true,
+          reason: 'GRF carregado com sucesso pela biblioteca'
+        };
+
+      } catch (loadError) {
+        // Falhou ao carregar - incompatível
+        fs.closeSync(testFd);
+        if (fd) fs.closeSync(fd);
+
+        return {
+          valid: false,
+          version: versionHex,
+          compatible: false,
+          reason: `Biblioteca não conseguiu carregar: ${loadError.message}`
+        };
+      }
+
     } catch (error) {
+      if (fd) {
+        try { fs.closeSync(fd); } catch (e) {}
+      }
+
       return {
         valid: false,
         version: 'error',
-        hasEncryption: false,
-        reason: `Erro ao ler GRF: ${error.message}`
+        compatible: false,
+        reason: `Erro ao validar GRF: ${error.message}`
       };
     }
   }
