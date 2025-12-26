@@ -199,7 +199,7 @@ module.exports = {
 #### Editar `index.js` - Configurar CORS
 
 ```javascript
-const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'https://seu-dominio.com';
+const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'http://localhost:8000'; // 'https://seu-dominio.com';
 
 const corsOptions = {
   origin: [CLIENT_PUBLIC_URL, 'http://localhost:3338'],
