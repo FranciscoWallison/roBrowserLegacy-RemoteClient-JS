@@ -19,8 +19,16 @@ const Client = {
 
     const dataIniContent = fs.readFileSync(this.data_ini, 'utf-8');
     const dataIni = parseIni(dataIniContent);
+
+    // Check if data section exists and has GRF files configured
+    if (!dataIni.data || dataIni.data.length === 0) {
+      console.log('No GRF files configured in DATA.INI. Add GRF files to [Data] section.');
+      this.grfs = [];
+      return;
+    }
+
     this.grfs = await Promise.all(
-      dataIni.data.map(async grfPath => {
+      dataIni.data.filter(Boolean).map(async grfPath => {
         const grf = new Grf(path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, grfPath));
         await grf.load();
         return grf;

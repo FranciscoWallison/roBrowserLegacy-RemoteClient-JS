@@ -1,0 +1,86 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>roBrowser Remote Client</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background-color: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .info {
+            background-color: #e3f2fd;
+            padding: 15px;
+            border-left: 4px solid #2196F3;
+            margin: 20px 0;
+        }
+        .warning {
+            background-color: #fff3e0;
+            padding: 15px;
+            border-left: 4px solid #ff9800;
+            margin: 20px 0;
+        }
+        code {
+            background-color: #f5f5f5;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: monospace;
+        }
+        ul {
+            line-height: 1.8;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>roBrowser Remote Client</h1>
+
+        <div class="info">
+            <strong>Server Status:</strong> Running
+        </div>
+
+        <h2>Setup Instructions</h2>
+        <p>This is a remote client server for roBrowser. To get started:</p>
+
+        <ol>
+            <li>Place your GRF files in the <code>resources/</code> directory</li>
+            <li>Edit the <code>resources/DATA.INI</code> file to list your GRF files:
+                <pre><code>[Data]
+0=rdata.grf
+1=data.grf</code></pre>
+            </li>
+            <li>Copy your <code>BGM/</code>, <code>data/</code>, and <code>System/</code> folders to the project root</li>
+            <li>Configure <code>src/config/configs.js</code> as needed</li>
+            <li>Restart the server</li>
+        </ol>
+
+        <div class="warning">
+            <strong>Note:</strong> Make sure your GRF files are version 0x200 without DES encryption.
+            Use GRF Builder to repack if needed: Options > Repack type > Decrypt -> Repack
+        </div>
+
+        <h2>API Endpoints</h2>
+        <ul>
+            <li><strong>GET /list-files</strong> - List all available files</li>
+            <li><strong>POST /search</strong> - Search for files (if enabled)</li>
+            <li><strong>GET /*</strong> - Get any file from GRF or filesystem</li>
+        </ul>
+
+        <h2>Documentation</h2>
+        <p>For more information, check the <a href="https://github.com/vthibault/roBrowser">roBrowser documentation</a></p>
+    </div>
+</body>
+</html>
