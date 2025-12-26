@@ -221,7 +221,7 @@ CLIENT_PUBLIC_URL=https://your-domain.com
 
 ---
 
-## ▶️ Run the Server
+## Run the Server
 
 ```bash
 npm run start
@@ -295,7 +295,8 @@ curl http://localhost:3338/data/sprite/player.spr
 
 GNU GPL V3
 
-## 👤 Author
+## Author
 
 Vincent Thibault
+
 Francisco Wallison
