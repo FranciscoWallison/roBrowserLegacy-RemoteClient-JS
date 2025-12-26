@@ -115,7 +115,24 @@ roBrowserLegacy-RemoteClient-JS/
 npm install
 ```
 
-### 2. Add Ragnarok Client Files
+### 2. Run Validation (Recommended)
+
+Before starting the server, run the diagnostic tool to validate your setup:
+
+```bash
+npm run doctor
+```
+
+This will check:
+- ✓ Node.js and npm versions
+- ✓ Dependencies installed correctly
+- ✓ Environment variables configured
+- ✓ Required files and folders exist
+- ✓ GRF files compatibility (version 0x200, no DES encryption)
+
+If any errors are found, the tool will provide specific instructions to fix them.
+
+### 3. Add Ragnarok Client Files
 
 ####  `resources/` directory
 
@@ -129,13 +146,21 @@ resources/
 └── *.grf             # Other required GRF files
 ```
 
-**IMPORTANT:** To ensure compatibility, use **GRF Builder** to repack your GRFs:
+**⚠️ CRITICAL - GRF Compatibility:**
 
-1. Open GRF Builder
-2. File → Option → Repack type → **Decrypt**
-3. Repack
+This project **ONLY** works with GRF version **0x200** without DES encryption.
 
-This ensures the GRFs are in version 0x200 without DES encryption.
+To ensure compatibility, repack your GRFs using **GRF Builder**:
+
+1. Download [GRF Builder/Editor](https://github.com/Tokeiburu/GRFEditor)
+2. Open your .grf file in GRF Builder
+3. Go to: **File → Options → Repack type → Decrypt**
+4. Click: **Tools → Repack**
+5. Wait for completion and replace the original file
+
+This guarantees the GRFs are in the correct format (0x200 / no DES).
+
+The `npm run doctor` command will validate your GRF files and warn you if they're incompatible.
 
 ####  `BGM/` directory
 
@@ -182,7 +207,7 @@ AI/
     └── ...
 ```
 
-### 3. Configure the Server
+### 4. Configure the Server
 
 #### Edit `src/config/configs.js`
 
@@ -210,39 +235,97 @@ const corsOptions = {
 
 Replace `https://your-domain.com` with the domain where roBrowser is running.
 
-### 4. Environment Variables (Optional)
+### 5. Environment Variables (Required)
 
 Create a `.env` file in the project root:
 
 ```env
 PORT=3338
-CLIENT_PUBLIC_URL=https://your-domain.com
+CLIENT_PUBLIC_URL=http://127.0.0.1:8000
+NODE_ENV=development
 ```
+
+**Important**: `CLIENT_PUBLIC_URL` is **required**. The server will not start without it.
 
 ---
 
-## Run the Server
+## 🚀 Run the Server
+
+### Validation on Startup
+
+The server automatically validates your setup before starting. If any critical errors are found, the server will not start and will display detailed error messages.
 
 ```bash
-npm run start
+npm start
 ```
 
-The server will start on port **3338** (or the port set in `PORT`).
+Output example:
+```
+🚀 Iniciando roBrowser Remote Client...
 
-Access: `http://localhost:3338`
+🔍 Validando configurações de startup...
+
+================================================================================
+📋 RELATÓRIO DE VALIDAÇÃO
+================================================================================
+
+✓ INFORMAÇÕES:
+  Node.js: v18.12.0
+  npm: 9.1.0
+  Dependências instaladas corretamente
+  PORT: 3338
+  CLIENT_PUBLIC_URL: http://127.0.0.1:8000
+  NODE_ENV: development
+  Pasta resources/ OK
+  Arquivo DATA.INI OK
+  GRF válido: data.grf (versão 0x200, sem DES)
+
+⚠️  AVISOS:
+  Pasta BGM/ vazia - pode causar problemas dependendo do client
+
+================================================================================
+✅ Validação concluída com sucesso!
+⚠️  1 aviso(s) encontrado(s)
+================================================================================
+
+✅ Servidor iniciado com sucesso!
+🌐 URL: http://localhost:3338
+📊 Status: http://localhost:3338/api/health
+```
+
+### Manual Validation
+
+Run the diagnostic tool anytime:
+
+```bash
+npm run doctor
+```
+
+This provides a detailed report and troubleshooting steps for any issues found.
+
+Access the server: `http://localhost:3338`
+
+Check validation status: `http://localhost:3338/api/health`
 
 ---
 
 ## 🔌 API Endpoints
 
-| Method | Route         | Description               | Params                  |
-| ------ | ------------- | ------------------------- | ----------------------- |
-| GET    | `/`           | Returns `index.html`      | -                       |
-| GET    | `/*`          | Serves any client file    | File path in the URL    |
-| POST   | `/search`     | Searches files by regex   | `{ "filter": "regex" }` |
-| GET    | `/list-files` | Lists all available files | -                       |
+| Method | Route           | Description                  | Params                  |
+| ------ | --------------- | ---------------------------- | ----------------------- |
+| GET    | `/`             | Returns `index.html`         | -                       |
+| GET    | `/api/health`   | Validation status (JSON)     | -                       |
+| GET    | `/*`            | Serves any client file       | File path in the URL    |
+| POST   | `/search`       | Searches files by regex      | `{ "filter": "regex" }` |
+| GET    | `/list-files`   | Lists all available files    | -                       |
 
 ### Usage Examples
+
+**Check system health:**
+
+```bash
+curl http://localhost:3338/api/health
+```
 
 **Search files:**
 
@@ -266,13 +349,31 @@ curl http://localhost:3338/data/sprite/player.spr
 
 ---
 
-## Important Notes
+## ⚠️ Important Notes
 
-1. **GRF Version**: Only GRF version 0x200 without DES encryption is supported
-2. **DATA.INI**: Required inside `resources/`
-3. **Cache**: Extracted files are cached for better performance
-4. **CORS**: Configure `CLIENT_PUBLIC_URL` correctly to avoid CORS errors
-5. **Gitignore**: `BGM/`, `data/`, `resources/`, `System/` and `AI/` directories are in `.gitignore` to avoid versioning client files
+1. **Startup Validation**: The server validates all requirements before starting. If validation fails, the server will not start.
+2. **GRF Version**: Only GRF version 0x200 without DES encryption is supported. Use GRF Builder to repack incompatible files.
+3. **Environment Variables**: `CLIENT_PUBLIC_URL` is **required**. The server will not start without it.
+4. **DATA.INI**: Required inside `resources/`. Must list at least one .grf file.
+5. **Dependencies**: Run `npm install` before starting. The server checks for missing dependencies.
+6. **Cache**: Extracted files are cached for better performance
+7. **CORS**: Configure `CLIENT_PUBLIC_URL` correctly to avoid CORS errors
+8. **Gitignore**: `BGM/`, `data/`, `resources/`, `System/` and `AI/` directories are in `.gitignore` to avoid versioning client files
+
+## 🩺 Troubleshooting
+
+If you encounter errors:
+
+1. **Run diagnostics**: `npm run doctor`
+2. **Check logs**: The validation report shows exactly what's wrong
+3. **Common issues**:
+   - **Dependencies not installed**: Run `npm install`
+   - **CLIENT_PUBLIC_URL not set**: Create `.env` file with `CLIENT_PUBLIC_URL=http://your-url`
+   - **Incompatible GRF**: Repack with GRF Builder (see GRF Compatibility section)
+   - **Missing DATA.INI**: Create `resources/DATA.INI` with your GRF list
+   - **Empty resources/**: Add at least one .grf file to `resources/`
+
+The startup validation and `npm run doctor` command will guide you through fixing any issues.
 
 ---
 
