@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Doctor Command - Diagnóstico completo do sistema
- * Execute: npm run doctor
+ * Doctor Command - Full system diagnosis
+ * Run: npm run doctor
  */
 
 require('dotenv').config();
@@ -12,36 +12,36 @@ const StartupValidator = require('./src/validators/startupValidator');
 async function runDoctor() {
   console.log('\n╔════════════════════════════════════════════════════════════════════════════╗');
   console.log('║                    🏥 roBrowser Remote Client - Doctor                    ║');
-  console.log('║                        Diagnóstico do Sistema                             ║');
+  console.log('║                        System Diagnosis                                   ║');
   console.log('╚════════════════════════════════════════════════════════════════════════════╝\n');
 
   const validator = new StartupValidator();
   const results = await validator.validateAll();
 
-  // Imprimir relatório detalhado
+  // Print detailed report
   validator.printReport(results);
 
-  // Se houver erros, mostrar instruções de correção
+  // If there are errors, show fix instructions
   if (!results.success) {
-    console.log('\n📖 GUIA DE CORREÇÃO:\n');
+    console.log('\n📖 FIX GUIDE:\n');
 
-    // Verificar cada tipo de erro e dar instruções específicas
+    // Check each error type and provide specific instructions
     const { details } = results;
 
-    // Erros de dependências
+    // Dependency errors
     if (details.dependencies && !details.dependencies.installed) {
-      console.log('1️⃣  DEPENDÊNCIAS NÃO INSTALADAS:');
-      console.log('   Execute: npm install');
+      console.log('1️⃣  DEPENDENCIES NOT INSTALLED:');
+      console.log('   Run: npm install');
       if (details.nodeVersion) {
-        console.log(`   Versões: Node ${details.nodeVersion.node} | npm ${details.nodeVersion.npm}`);
+        console.log(`   Versions: Node ${details.nodeVersion.node} | npm ${details.nodeVersion.npm}`);
       }
       console.log('');
     }
 
-    // Erros de variáveis de ambiente
+    // Environment variable errors
     if (details.env && !details.env.valid) {
-      console.log('2️⃣  VARIÁVEIS DE AMBIENTE:');
-      console.log('   Crie um arquivo .env na raiz do projeto:');
+      console.log('2️⃣  ENVIRONMENT VARIABLES:');
+      console.log('   Create a .env file at the project root:');
       console.log('   ');
       console.log('   PORT=3338');
       console.log('   CLIENT_PUBLIC_URL=http://127.0.0.1:8000');
@@ -49,46 +49,46 @@ async function runDoctor() {
       console.log('');
     }
 
-    // Erros de arquivos
+    // Required files errors
     if (details.files && !details.files.valid) {
-      console.log('3️⃣  ARQUIVOS E PASTAS OBRIGATÓRIOS:');
-      console.log('   Certifique-se de que existem:');
+      console.log('3️⃣  REQUIRED FILES AND FOLDERS:');
+      console.log('   Make sure these exist:');
       console.log('   - resources/');
       console.log('   - resources/DATA.INI');
-      console.log('   - Pelo menos um arquivo .grf em resources/');
+      console.log('   - At least one .grf file in resources/');
       console.log('');
     }
 
-    // Erros de GRF
+    // GRF errors
     if (details.grfs && !details.grfs.valid) {
-      console.log('4️⃣  ARQUIVOS GRF INCOMPATÍVEIS:');
-      console.log('   Este projeto só suporta GRF versão 0x200 sem criptografia DES.');
+      console.log('4️⃣  INCOMPATIBLE GRF FILES:');
+      console.log('   This project only supports GRF version 0x200 with no DES encryption.');
       console.log('');
-      console.log('   📦 SOLUÇÃO: Reempacotar com GRF Builder');
+      console.log('   📦 FIX: Repack with GRF Builder');
       console.log('   ');
-      console.log('   1. Baixe o GRF Builder (https://github.com/Tokeiburu/GRFEditor)');
-      console.log('   2. Abra seu arquivo .grf no GRF Builder');
-      console.log('   3. Vá em: File → Options → Repack type → Decrypt');
-      console.log('   4. Clique em: Tools → Repack');
-      console.log('   5. Aguarde a conclusão e substitua o arquivo original');
+      console.log('   1. Download GRF Builder (https://github.com/Tokeiburu/GRFEditor)');
+      console.log('   2. Open your .grf file in GRF Builder');
+      console.log('   3. Go to: File → Options → Repack type → Decrypt');
+      console.log('   4. Click: Tools → Repack');
+      console.log('   5. Wait for completion and replace the original file');
       console.log('');
-      console.log('   Isso vai converter para versão 0x200 sem DES.');
+      console.log('   This will convert it to version 0x200 without DES.');
       console.log('');
     }
 
     console.log('═'.repeat(80));
-    console.log('💡 Depois de corrigir, execute novamente: npm run doctor');
+    console.log('💡 After fixing, run again: npm run doctor');
     console.log('═'.repeat(80) + '\n');
 
     process.exit(1);
   } else {
-    console.log('🎉 Sistema configurado corretamente! Pode iniciar o servidor com: npm start\n');
+    console.log('🎉 System is configured correctly! You can start the server with: npm start\n');
     process.exit(0);
   }
 }
 
-// Executar doctor
-runDoctor().catch(error => {
-  console.error('\n❌ Erro ao executar diagnóstico:', error);
+// Run doctor
+runDoctor().catch((error) => {
+  console.error('\n❌ Error while running diagnosis:', error);
   process.exit(1);
 });

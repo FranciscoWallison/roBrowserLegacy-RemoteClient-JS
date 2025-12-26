@@ -12,58 +12,60 @@ const debugMiddleware = require('./src/middlewares/debugMiddleware'); // adjust 
 
 const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'http://localhost:8000'; // 'https://example.com';
 
-// Variável global para armazenar status de validação
+// Global variable to store validation status
 let validationStatus = null;
 
-// Função principal de inicialização
+// Main startup function
 async function startServer() {
-  // Executar validação de startup
-  console.log('🚀 Iniciando roBrowser Remote Client...\n');
+  // Run startup validation
+  console.log('🚀 Starting roBrowser Remote Client...\n');
 
   const validator = new StartupValidator();
   const results = await validator.validateAll();
 
-  // Armazenar status para endpoint de API
+  // Store status for API endpoint
   validationStatus = validator.getStatusJSON();
 
-  // Imprimir relatório
+  // Print report
   const isValid = validator.printReport(results);
 
-  // Se houver erros fatais, encerrar
+  // If there are fatal errors, exit
   if (!isValid) {
-    console.error('❌ Servidor não pode iniciar devido a erros de configuração.');
-    console.error('💡 Execute "npm run doctor" para diagnóstico completo.\n');
+    console.error('❌ Server cannot start due to configuration errors.');
+    console.error('💡 Run "npm run doctor" for a full diagnosis.\n');
     process.exit(1);
   }
 
-  // CORS setup. change example.com to your roBrowser ip/domain and http://localhost:3338 (if necessary) to the domain/port where your client is running
+  // CORS setup. Change example.com to your roBrowser ip/domain and http://localhost:3338 (if necessary)
+  // to the domain/port where your client is running
   const corsOptions = {
-    origin: [CLIENT_PUBLIC_URL, 'http://localhost:3338', 'http://127.0.0.1:8080' ,'http://localhost:8080'],
+    origin: [CLIENT_PUBLIC_URL, 'http://localhost:3338', 'http://127.0.0.1:8080', 'http://localhost:8080'],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
     credentials: true,
   };
+
   app.use(cors(corsOptions));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
   app.use(debugMiddleware);
 
-  // Endpoint para status de validação (JSON para frontend)
+  // Validation status endpoint (JSON for frontend)
   app.get('/api/health', (req, res) => {
     res.json(validationStatus);
   });
 
-  // Rotas da API
+  // API routes
   app.use('/', routes);
 
   app.listen(port, () => {
-    console.log('\n✅ Servidor iniciado com sucesso!');
+    console.log('\n✅ Server started successfully!');
     console.log(`🌐 URL: http://localhost:${port}`);
     console.log(`📊 Status: http://localhost:${port}/api/health\n`);
   });
 }
 
-// Iniciar servidor
-startServer().catch(error => {
-  console.error('\n❌ Erro fatal ao iniciar servidor:', error);
+// Start server
+startServer().catch((error) => {
+  console.error('\n❌ Fatal error while starting server:', error);
   process.exit(1);
 });

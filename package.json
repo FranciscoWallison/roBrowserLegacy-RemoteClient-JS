@@ -5,7 +5,9 @@
 	"main": "index.js",
 	"scripts": {
 		"start": "node index.js",
-		"doctor": "node doctor.js"
+		"doctor": "node doctor.js",
+		"debug-grf": "node debug-grf.js",
+		"test-grf": "node test-grf-real.js"
 	},
 	"author": "Vincent Thibault",
 	"license": "GNU GPL V3",

@@ -1,3 +1,7 @@
+Here’s the full file translated to English (same structure/formatting). 
+
+---
+
 # roBrowser Legacy Remote Client (Node.js)
 
 Remote client that lets users play Ragnarok Online by downloading resources from an external server, without needing the FullClient installed locally.
@@ -14,7 +18,7 @@ Remote client that lets users play Ragnarok Online by downloading resources from
 
 ## Directory Structure
 
-```
+```text
 roBrowserLegacy-RemoteClient-JS/
 │
 ├── index.js                    # Main Express server file
@@ -66,8 +70,8 @@ roBrowserLegacy-RemoteClient-JS/
 
 ### Root Files
 
-| File                    | Description                                                     | Required           |
-| ----------------------- | --------------------------------------------------------------- | ------------------ |
+| File                    | Description                                                     | Required         |
+| ----------------------- | --------------------------------------------------------------- | ---------------- |
 | `index.js`              | Main Express server. Defines port, CORS, middlewares and routes | Yes              |
 | `index.html`            | HTML page served when accessing the server root (`/`)           | Yes              |
 | `package.json`          | Node.js dependencies and npm scripts                            | Yes              |
@@ -124,21 +128,22 @@ npm run doctor
 ```
 
 This will check:
-- ✓ Node.js and npm versions
-- ✓ Dependencies installed correctly
-- ✓ Environment variables configured
-- ✓ Required files and folders exist
-- ✓ GRF files compatibility (version 0x200, no DES encryption)
+
+* ✓ Node.js and npm versions
+* ✓ Dependencies installed correctly
+* ✓ Environment variables configured
+* ✓ Required files and folders exist
+* ✓ GRF files compatibility (version 0x200, no DES encryption)
 
 If any errors are found, the tool will provide specific instructions to fix them.
 
 ### 3. Add Ragnarok Client Files
 
-####  `resources/` directory
+#### `resources/` directory
 
 Put your client GRF files here:
 
-```
+```text
 resources/
 ├── DATA.INI          # REQUIRED - client configuration file
 ├── data.grf          # Main GRF file
@@ -162,22 +167,22 @@ This guarantees the GRFs are in the correct format (0x200 / no DES).
 
 The `npm run doctor` command will validate your GRF files and warn you if they're incompatible.
 
-####  `BGM/` directory
+#### `BGM/` directory
 
 Replace the contents with your client’s BGM folder:
 
-```
+```text
 BGM/
 ├── 01.mp3
 ├── 02.mp3
 └── ...
 ```
 
-####  `data/` directory
+#### `data/` directory
 
 Replace the contents with your client’s data folder:
 
-```
+```text
 data/
 ├── sprite/
 ├── texture/
@@ -185,22 +190,22 @@ data/
 └── ...
 ```
 
-####  `System/` directory
+#### `System/` directory
 
 Replace the contents with your client’s System folder:
 
-```
+```text
 System/
 ├── itemInfo.lua
 ├── skillInfo.lua
 └── ...
 ```
 
-####  `AI/` directory (Optional)
+#### `AI/` directory (Optional)
 
 Add custom AI scripts:
 
-```
+```text
 AI/
 └── USER_AI/
     ├── AI.lua
@@ -260,35 +265,36 @@ npm start
 ```
 
 Output example:
-```
-🚀 Iniciando roBrowser Remote Client...
 
-🔍 Validando configurações de startup...
+```text
+🚀 Starting roBrowser Remote Client...
+
+🔍 Validating startup configuration...
 
 ================================================================================
-📋 RELATÓRIO DE VALIDAÇÃO
+📋 VALIDATION REPORT
 ================================================================================
 
-✓ INFORMAÇÕES:
+✓ INFORMATION:
   Node.js: v18.12.0
   npm: 9.1.0
-  Dependências instaladas corretamente
+  Dependencies installed correctly
   PORT: 3338
   CLIENT_PUBLIC_URL: http://127.0.0.1:8000
   NODE_ENV: development
-  Pasta resources/ OK
-  Arquivo DATA.INI OK
-  GRF válido: data.grf (versão 0x200, sem DES)
+  resources/ folder OK
+  DATA.INI file OK
+  Valid GRF: data.grf (version 0x200, no DES)
 
-⚠️  AVISOS:
-  Pasta BGM/ vazia - pode causar problemas dependendo do client
+⚠️  WARNINGS:
+  BGM/ folder is empty - may cause issues depending on the client
 
 ================================================================================
-✅ Validação concluída com sucesso!
-⚠️  1 aviso(s) encontrado(s)
+✅ Validation completed successfully!
+⚠️  1 warning(s) found
 ================================================================================
 
-✅ Servidor iniciado com sucesso!
+✅ Server started successfully!
 🌐 URL: http://localhost:3338
 📊 Status: http://localhost:3338/api/health
 ```
@@ -311,13 +317,13 @@ Check validation status: `http://localhost:3338/api/health`
 
 ## 🔌 API Endpoints
 
-| Method | Route           | Description                  | Params                  |
-| ------ | --------------- | ---------------------------- | ----------------------- |
-| GET    | `/`             | Returns `index.html`         | -                       |
-| GET    | `/api/health`   | Validation status (JSON)     | -                       |
-| GET    | `/*`            | Serves any client file       | File path in the URL    |
-| POST   | `/search`       | Searches files by regex      | `{ "filter": "regex" }` |
-| GET    | `/list-files`   | Lists all available files    | -                       |
+| Method | Route         | Description               | Params                  |
+| ------ | ------------- | ------------------------- | ----------------------- |
+| GET    | `/`           | Returns `index.html`      | -                       |
+| GET    | `/api/health` | Validation status (JSON)  | -                       |
+| GET    | `/*`          | Serves any client file    | File path in the URL    |
+| POST   | `/search`     | Searches files by regex   | `{ "filter": "regex" }` |
+| GET    | `/list-files` | Lists all available files | -                       |
 
 ### Usage Examples
 
@@ -367,11 +373,12 @@ If you encounter errors:
 1. **Run diagnostics**: `npm run doctor`
 2. **Check logs**: The validation report shows exactly what's wrong
 3. **Common issues**:
-   - **Dependencies not installed**: Run `npm install`
-   - **CLIENT_PUBLIC_URL not set**: Create `.env` file with `CLIENT_PUBLIC_URL=http://your-url`
-   - **Incompatible GRF**: Repack with GRF Builder (see GRF Compatibility section)
-   - **Missing DATA.INI**: Create `resources/DATA.INI` with your GRF list
-   - **Empty resources/**: Add at least one .grf file to `resources/`
+
+   * **Dependencies not installed**: Run `npm install`
+   * **CLIENT_PUBLIC_URL not set**: Create `.env` file with `CLIENT_PUBLIC_URL=http://your-url`
+   * **Incompatible GRF**: Repack with GRF Builder (see GRF Compatibility section)
+   * **Missing DATA.INI**: Create `resources/DATA.INI` with your GRF list
+   * **Empty resources/**: Add at least one .grf file to `resources/`
 
 The startup validation and `npm run doctor` command will guide you through fixing any issues.
 
@@ -399,5 +406,4 @@ GNU GPL V3
 ## Author
 
 Vincent Thibault
-
 Francisco Wallison
