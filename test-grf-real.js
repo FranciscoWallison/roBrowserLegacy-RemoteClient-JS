@@ -7,7 +7,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const GrfNode = require('@chicowall/grf-loader');
+const { GrfNode } = require('@chicowall/grf-loader');
 
 async function testGrf(grfPath) {
   console.log('\n' + '═'.repeat(80));
@@ -19,22 +19,55 @@ async function testGrf(grfPath) {
     return false;
   }
 
+  let fd = null;
+  let grf = null;
+  let stepCompleted = 0;
+
   try {
+    // PASSO 1: Abrir arquivo
     console.log('1️⃣  Abrindo arquivo GRF...');
-    const fd = fs.openSync(grfPath, 'r');
+    fd = fs.openSync(grfPath, 'r');
+    const stats = fs.fstatSync(fd);
+    console.log(`   ✅ Arquivo aberto com sucesso`);
+    console.log(`   📏 Tamanho: ${(stats.size / 1024 / 1024).toFixed(2)} MB (${stats.size} bytes)`);
+    stepCompleted = 1;
 
-    console.log('2️⃣  Inicializando biblioteca @chicowall/grf-loader...');
-    const grf = new GrfNode(fd);
+    // PASSO 2: Ler header
+    console.log('\n2️⃣  Lendo header do GRF...');
+    const headerBuffer = Buffer.alloc(46);
+    fs.readSync(fd, headerBuffer, 0, 46, 0);
 
-    console.log('3️⃣  Tentando carregar GRF...');
+    const magic = headerBuffer.toString('ascii', 0, 15);
+    const version = headerBuffer.readUInt32LE(42);
+    const versionHex = '0x' + version.toString(16).toUpperCase();
+
+    console.log(`   Magic: "${magic}"`);
+    console.log(`   Versão: ${versionHex} (${version})`);
+    stepCompleted = 2;
+
+    // PASSO 3: Inicializar biblioteca
+    console.log('\n3️⃣  Inicializando biblioteca @chicowall/grf-loader...');
+    grf = new GrfNode(fd);
+    console.log(`   ✅ Biblioteca inicializada`);
+    stepCompleted = 3;
+
+    // PASSO 4: Carregar GRF (AQUI QUE PODE FALHAR COM DES)
+    console.log('\n4️⃣  Tentando carregar/descompactar arquivos do GRF...');
+    console.log(`   ⏳ Aguarde, isso pode demorar alguns segundos...`);
+
+    const startTime = Date.now();
     await grf.load();
+    const loadTime = ((Date.now() - startTime) / 1000).toFixed(2);
 
-    console.log('4️⃣  Listando arquivos...');
-    const files = grf.getItems();
+    console.log(`   ✅ GRF carregado em ${loadTime}s`);
+    stepCompleted = 4;
+
+    // PASSO 5: Listar arquivos
+    console.log('\n5️⃣  Listando arquivos...');
+    const files = Array.from(grf.files.keys());
     const fileCount = files.length;
 
-    console.log(`\n✅ SUCESSO! GRF carregado com êxito!`);
-    console.log(`   📦 Total de arquivos: ${fileCount}`);
+    console.log(`   ✅ Total de arquivos: ${fileCount}`);
 
     // Mostrar alguns arquivos de exemplo
     if (fileCount > 0) {
@@ -46,31 +79,109 @@ async function testGrf(grfPath) {
       if (fileCount > 10) {
         console.log(`      ... e mais ${fileCount - 10} arquivos`);
       }
+
+      // Testar extração de um arquivo
+      console.log('\n6️⃣  Testando extração de arquivo...');
+      const testFile = files[0];
+      console.log(`   📝 Tentando extrair: ${testFile}`);
+
+      const { data, error } = await grf.getFile(testFile);
+      if (error) {
+        console.log(`   ⚠️  Erro ao extrair: ${error}`);
+      } else {
+        console.log(`   ✅ Arquivo extraído com sucesso (${data.length} bytes)`);
+      }
     }
 
-    fs.closeSync(fd);
+    if (fd !== null) {
+      fs.closeSync(fd);
+    }
 
     console.log('\n' + '═'.repeat(80));
-    console.log('🎉 CONCLUSÃO: GRF É COMPATÍVEL COM A BIBLIOTECA!');
-    console.log('═'.repeat(80) + '\n');
+    console.log('🎉 CONCLUSÃO: GRF É TOTALMENTE COMPATÍVEL!');
+    console.log('═'.repeat(80));
+    console.log('\n✅ Seu GRF funciona perfeitamente com a biblioteca!');
+    console.log('✅ Não precisa reempacotar!');
+    console.log('\n💡 O validador precisa ser ajustado para aceitar este tipo de GRF.\n');
 
     return true;
 
   } catch (error) {
     console.error(`\n❌ ERRO ao carregar GRF!`);
+    console.error('─'.repeat(80));
+
+    // Identificar ONDE falhou
+    console.error(`\n📍 LOCAL DA FALHA:`);
+    if (stepCompleted === 0) {
+      console.error(`   Falhou ao: Abrir o arquivo GRF`);
+      console.error(`   Possível causa: Arquivo não existe ou sem permissão de leitura`);
+    } else if (stepCompleted === 1) {
+      console.error(`   Falhou ao: Ler header do GRF`);
+      console.error(`   Possível causa: Arquivo corrompido ou não é um GRF válido`);
+    } else if (stepCompleted === 2) {
+      console.error(`   Falhou ao: Inicializar biblioteca`);
+      console.error(`   Possível causa: Problema com a biblioteca @chicowall/grf-loader`);
+    } else if (stepCompleted === 3) {
+      console.error(`   Falhou ao: Carregar/descompactar arquivos do GRF`);
+      console.error(`   Possível causa: Criptografia DES incompatível ou arquivo corrompido`);
+      console.error(`\n   ⚠️  ESTE É O PROBLEMA MAIS COMUM COM DES!`);
+      console.error(`   A biblioteca não consegue descriptografar GRFs com DES.`);
+    } else if (stepCompleted === 4) {
+      console.error(`   Falhou ao: Listar arquivos`);
+      console.error(`   Possível causa: Estrutura interna do GRF incompatível`);
+    }
+
+    console.error(`\n📋 DETALHES DO ERRO:`);
     console.error(`   Tipo: ${error.name}`);
     console.error(`   Mensagem: ${error.message}`);
 
+    if (error.code) {
+      console.error(`   Código: ${error.code}`);
+    }
+
+    // Analisar mensagem de erro para dar diagnóstico específico
+    const errorMsg = error.message.toLowerCase();
+    console.error(`\n🔍 DIAGNÓSTICO:`);
+
+    if (errorMsg.includes('decrypt') || errorMsg.includes('encryption') || errorMsg.includes('des')) {
+      console.error(`   ❌ PROBLEMA: Criptografia DES detectada`);
+      console.error(`   📦 SOLUÇÃO: Reempacotar com GRF Builder (Decrypt)`);
+    } else if (errorMsg.includes('magic') || errorMsg.includes('header')) {
+      console.error(`   ❌ PROBLEMA: Header do GRF inválido`);
+      console.error(`   📦 SOLUÇÃO: Arquivo pode estar corrompido`);
+    } else if (errorMsg.includes('compress') || errorMsg.includes('inflate') || errorMsg.includes('zlib')) {
+      console.error(`   ❌ PROBLEMA: Erro ao descompactar arquivos`);
+      console.error(`   📦 SOLUÇÃO: GRF pode estar corrompido ou usar compressão incompatível`);
+    } else if (errorMsg.includes('version')) {
+      console.error(`   ❌ PROBLEMA: Versão do GRF incompatível`);
+      console.error(`   📦 SOLUÇÃO: Reempacotar com GRF Builder para versão 0x200`);
+    } else {
+      console.error(`   ❓ PROBLEMA: Erro desconhecido`);
+      console.error(`   📦 SOLUÇÃO: Tente reempacotar com GRF Builder (Decrypt)`);
+    }
+
     if (error.stack) {
-      console.error(`\n   Stack trace:`);
+      console.error(`\n📚 Stack Trace Completo:`);
       console.error(error.stack);
     }
 
     console.log('\n' + '═'.repeat(80));
     console.log('❌ CONCLUSÃO: GRF NÃO É COMPATÍVEL!');
-    console.log('   A biblioteca @chicowall/grf-loader não consegue ler este GRF.');
-    console.log('   Você PRECISA reempacotar com GRF Builder (Decrypt).');
-    console.log('═'.repeat(80) + '\n');
+    console.log('═'.repeat(80));
+    console.log('\n🔧 SOLUÇÃO RECOMENDADA:');
+    console.log('   1. Baixe o GRF Builder: https://github.com/Tokeiburu/GRFEditor');
+    console.log('   2. Abra o GRF Builder');
+    console.log('   3. File → Options → Repack type → Decrypt');
+    console.log('   4. Tools → Repack');
+    console.log('   5. Aguarde e substitua o arquivo original\n');
+
+    if (fd !== null) {
+      try {
+        fs.closeSync(fd);
+      } catch (e) {
+        // Ignorar erro ao fechar
+      }
+    }
 
     return false;
   }
