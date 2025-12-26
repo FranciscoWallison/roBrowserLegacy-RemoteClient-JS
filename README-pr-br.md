@@ -221,7 +221,7 @@ CLIENT_PUBLIC_URL=https://seu-dominio.com
 
 ---
 
-## ▶️ Executar o Servidor
+## Executar o Servidor
 
 ```bash
 npm run start
@@ -263,7 +263,7 @@ curl http://localhost:3338/data/sprite/player.spr
 
 ---
 
-## 📝 Notas Importantes
+## Notas Importantes
 
 1. **GRF Version**: Apenas GRF versão 0x200 sem criptografia DES é suportado
 2. **DATA.INI**: Obrigatório no diretório `resources/`
@@ -295,4 +295,5 @@ GNU GPL V3
 ## 👤 Autor
 
 Vincent Thibault
+
 Francisco Wallison
