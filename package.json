@@ -9,7 +9,7 @@
 	"author": "Vincent Thibault",
 	"license": "GNU GPL V3",
 	"dependencies": {
-		"@chicowall/grf-loader": "^1.0.4",
+		"@chicowall/grf-loader": "^1.0.11",
 		"cors": "^2.8.5",
 		"express": "^4.17.1"
 	}
