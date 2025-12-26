@@ -1,145 +1,145 @@
 # roBrowser Legacy Remote Client (Node.js)
 
-Cliente remoto que permite aos usuários jogar Ragnarok Online baixando recursos de um servidor externo, sem necessidade de ter o FullClient instalado localmente.
+Remote client that lets users play Ragnarok Online by downloading resources from an external server, without needing the FullClient installed locally.
 
-## 📋 Funcionalidades
+## 📋 Features
 
-- Suporte para arquivos de múltiplos domínios (Cross-origin resource sharing)
-- Extração automática de arquivos GRF (versão 0x200 - sem criptografia DES)
-- Conversão automática de BMP para PNG para otimizar transferências
-- Sistema de cache para evitar processamento redundante
-- API REST para servir arquivos do cliente
+* Support for files from multiple domains (Cross-Origin Resource Sharing — CORS)
+* Automatic extraction of GRF files (version 0x200 — without DES encryption)
+* Automatic BMP to PNG conversion to optimize transfers
+* Cache system to avoid redundant processing
+* REST API to serve client files
 
 ---
 
-## 📁 Estrutura de Diretórios
+## Directory Structure
 
 ```
 roBrowserLegacy-RemoteClient-JS/
 │
-├── index.js                    # Arquivo principal do servidor Express
-├── index.html                  # Página inicial servida na raiz do servidor
-├── package.json                # Dependências e scripts do projeto
-├── README.md                   # Documentação do projeto
+├── index.js                    # Main Express server file
+├── index.html                  # Home page served at the server root
+├── package.json                # Project dependencies and scripts
+├── README.md                   # Project documentation
 │
-├── src/                        # Código fonte da aplicação
-│   ├── config/                 # Arquivos de configuração
-│   │   └── configs.js          # Configurações do cliente e servidor
+├── src/                        # Application source code
+│   ├── config/                 # Configuration files
+│   │   └── configs.js          # Client and server settings
 │   │
-│   ├── controllers/            # Lógica de controle
-│   │   ├── clientController.js # Gerencia operações com arquivos do cliente
-│   │   └── grfController.js    # Gerencia extração de arquivos GRF
+│   ├── controllers/            # Controller logic
+│   │   ├── clientController.js # Manages client file operations
+│   │   └── grfController.js    # Manages GRF extraction
 │   │
-│   ├── middlewares/            # Middlewares Express
-│   │   └── debugMiddleware.js  # Middleware para logs de debug
+│   ├── middlewares/            # Express middlewares
+│   │   └── debugMiddleware.js  # Debug logging middleware
 │   │
-│   ├── routes/                 # Definição de rotas da API
-│   │   └── index.js            # Rotas principais (GET, POST /search, /list-files)
+│   ├── routes/                 # API route definitions
+│   │   └── index.js            # Main routes (GET, POST /search, /list-files)
 │   │
-│   └── utils/                  # Utilitários
-│       └── bmpUtils.js         # Conversão de BMP para PNG
+│   └── utils/                  # Utilities
+│       └── bmpUtils.js         # BMP to PNG conversion
 │
-├── resources/                  # ⚠️ ARQUIVOS DO CLIENTE RAGNAROK
-│   ├── DATA.INI                # Arquivo de configuração do cliente (obrigatório)
-│   └── *.grf                   # Arquivos GRF do cliente (data.grf, rdata.grf, etc)
+├── resources/                  #  RAGNAROK CLIENT FILES
+│   ├── DATA.INI                # Client configuration file (required)
+│   └── *.grf                   # Client GRF files (data.grf, rdata.grf, etc.)
 │
-├── BGM/                        # 🎵 Músicas de fundo do jogo
-│   └── *.mp3, *.wav            # Arquivos de áudio
+├── BGM/                        #  Game background music
+│   └── *.mp3, *.wav            # Audio files
 │
-├── data/                       # 📦 Arquivos de dados do cliente
-│   ├── sprite/                 # Sprites do jogo
-│   ├── texture/                # Texturas
-│   ├── wav/                    # Efeitos sonoros
-│   └── ...                     # Outros recursos
+├── data/                       #  Client data files
+│   ├── sprite/                 # Game sprites
+│   ├── texture/                # Textures
+│   ├── wav/                    # Sound effects
+│   └── ...                     # Other assets
 │
-├── System/                     # ⚙️ Arquivos de sistema do cliente
-│   └── *                       # Arquivos de configuração e sistema
+├── System/                     #  Client system files
+│   └── *                       # Config and system files
 │
-└── AI/                         # 🤖 Scripts de AI para homunculus/mercenários
-    └── USER_AI/                # Scripts customizados de AI
-        └── *                   # Arquivos Lua de AI
-
+└── AI/                         #  AI scripts for homunculus/mercenaries
+    └── USER_AI/                # Custom AI scripts
+        └── *                   # Lua AI files
 ```
 
 ---
 
-## 📂 Descrição Detalhada dos Arquivos
+## 📂 Detailed File Description
 
-### Arquivos Raiz
+### Root Files
 
-| Arquivo | Descrição | Obrigatório |
-|---------|-----------|-------------|
-| `index.js` | Servidor Express principal. Define porta, CORS, middlewares e rotas | ✅ Sim |
-| `index.html` | Página HTML servida quando acessar a raiz (`/`) do servidor | ✅ Sim |
-| `package.json` | Dependências do Node.js e scripts npm | ✅ Sim |
-| `test-grf.js` | Script de teste para extração de GRF | ❌ Não (desenvolvimento) |
-| `test-ini-normalize.js` | Script de teste para normalização de arquivos INI | ❌ Não (desenvolvimento) |
+| File                    | Description                                                     | Required           |
+| ----------------------- | --------------------------------------------------------------- | ------------------ |
+| `index.js`              | Main Express server. Defines port, CORS, middlewares and routes | Yes              |
+| `index.html`            | HTML page served when accessing the server root (`/`)           | Yes              |
+| `package.json`          | Node.js dependencies and npm scripts                            | Yes              |
+| `test-grf.js`           | Test script for GRF extraction                                  | No (development) |
+| `test-ini-normalize.js` | Test script for INI normalization                               | No (development) |
 
 ### src/config/
 
-| Arquivo | Conteúdo | Configurações |
-|---------|----------|---------------|
-| `configs.js` | Configurações do sistema | `DEBUG`: ativa logs de debug<br>`CLIENT_RESPATH`: caminho para resources/<br>`CLIENT_DATAINI`: nome do arquivo DATA.INI<br>`CLIENT_AUTOEXTRACT`: extração automática de GRF<br>`CLIENT_ENABLESEARCH`: habilita busca de arquivos |
+| File         | Content              | Settings                                                                                                                                                                                              |
+| ------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `configs.js` | System configuration | `DEBUG`: enables debug logs<br>`CLIENT_RESPATH`: path to resources/<br>`CLIENT_DATAINI`: DATA.INI filename<br>`CLIENT_AUTOEXTRACT`: auto GRF extraction<br>`CLIENT_ENABLESEARCH`: enables file search |
 
 ### src/controllers/
 
-| Arquivo | Responsabilidade |
-|---------|------------------|
-| `clientController.js` | - Inicialização do cliente<br>- Leitura de DATA.INI<br>- Busca de arquivos<br>- Servir arquivos do cliente<br>- Conversão BMP→PNG |
-| `grfController.js` | - Carregamento de arquivos GRF<br>- Extração de recursos dos GRFs<br>- Cache de arquivos extraídos |
+| File                  | Responsibility                                                                                                   |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `clientController.js` | - Client initialization<br>- Reading DATA.INI<br>- File search<br>- Serving client files<br>- BMP→PNG conversion |
+| `grfController.js`    | - Loading GRF files<br>- Extracting assets from GRFs<br>- Extracted file cache                                   |
 
 ### src/routes/
 
-| Arquivo | Rotas Definidas |
-|---------|-----------------|
-| `index.js` | `GET /` - Serve index.html<br>`GET /*` - Serve qualquer arquivo do cliente<br>`POST /search` - Busca arquivos por regex<br>`GET /list-files` - Lista todos os arquivos disponíveis |
+| File       | Defined Routes                                                                                                                                                |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `index.js` | `GET /` - Serves index.html<br>`GET /*` - Serves any client file<br>`POST /search` - Searches files by regex<br>`GET /list-files` - Lists all available files |
 
 ### src/middlewares/
 
-| Arquivo | Função |
-|---------|--------|
-| `debugMiddleware.js` | Registra logs de requisições HTTP quando DEBUG=true |
+| File                 | Purpose                            |
+| -------------------- | ---------------------------------- |
+| `debugMiddleware.js` | Logs HTTP requests when DEBUG=true |
 
 ### src/utils/
 
-| Arquivo | Função |
-|---------|--------|
-| `bmpUtils.js` | Converte imagens BMP para PNG automaticamente |
+| File          | Purpose                                  |
+| ------------- | ---------------------------------------- |
+| `bmpUtils.js` | Automatically converts BMP images to PNG |
 
 ---
 
-## 🚀 Instalação e Configuração
+## 🚀 Installation and Setup
 
-### 1. Instalar Dependências
+### 1. Install Dependencies
 
 ```bash
 npm install
 ```
 
-### 2. Adicionar Arquivos do Cliente Ragnarok
+### 2. Add Ragnarok Client Files
 
-#### 📦 Diretório `resources/`
+####  `resources/` directory
 
-Coloque aqui os arquivos GRF do seu cliente:
+Put your client GRF files here:
 
 ```
 resources/
-├── DATA.INI          # OBRIGATÓRIO - arquivo de configuração do cliente
-├── data.grf          # Arquivo GRF principal
-├── rdata.grf         # Arquivo GRF adicional
-└── *.grf             # Outros arquivos GRF necessários
+├── DATA.INI          # REQUIRED - client configuration file
+├── data.grf          # Main GRF file
+├── rdata.grf         # Additional GRF file
+└── *.grf             # Other required GRF files
 ```
 
-**⚠️ IMPORTANTE:** Para garantir compatibilidade, use o **GRF Builder** para reempacotar seus GRFs:
-1. Abra o GRF Builder
+** IMPORTANT:** To ensure compatibility, use **GRF Builder** to repack your GRFs:
+
+1. Open GRF Builder
 2. File → Option → Repack type → **Decrypt**
 3. Repack
 
-Isso garante que os GRFs estejam na versão 0x200 sem criptografia DES.
+This ensures the GRFs are in version 0x200 without DES encryption.
 
-#### 🎵 Diretório `BGM/`
+####  `BGM/` directory
 
-Substitua o conteúdo pelo diretório BGM do seu cliente:
+Replace the contents with your client’s BGM folder:
 
 ```
 BGM/
@@ -148,9 +148,9 @@ BGM/
 └── ...
 ```
 
-#### 📦 Diretório `data/`
+####  `data/` directory
 
-Substitua o conteúdo pelo diretório data do seu cliente:
+Replace the contents with your client’s data folder:
 
 ```
 data/
@@ -160,9 +160,9 @@ data/
 └── ...
 ```
 
-#### ⚙️ Diretório `System/`
+####  `System/` directory
 
-Substitua o conteúdo pelo diretório System do seu cliente:
+Replace the contents with your client’s System folder:
 
 ```
 System/
@@ -171,9 +171,9 @@ System/
 └── ...
 ```
 
-#### 🤖 Diretório `AI/` (Opcional)
+####  `AI/` directory (Optional)
 
-Adicione scripts customizados de AI:
+Add custom AI scripts:
 
 ```
 AI/
@@ -182,24 +182,24 @@ AI/
     └── ...
 ```
 
-### 3. Configurar o Servidor
+### 3. Configure the Server
 
-#### Editar `src/config/configs.js`
+#### Edit `src/config/configs.js`
 
 ```javascript
 module.exports = {
-	DEBUG: true,                      // true = ativa logs, false = desativa
-	CLIENT_RESPATH: "resources/",     // Caminho para os recursos do cliente
-	CLIENT_DATAINI: "DATA.INI",       // Nome do arquivo DATA.INI
-	CLIENT_AUTOEXTRACT: true,         // true = extrai GRF automaticamente
-	CLIENT_ENABLESEARCH: true,        // true = habilita rota POST /search
+	DEBUG: true,                      // true = enables logs, false = disables
+	CLIENT_RESPATH: "resources/",     // Path to client resources
+	CLIENT_DATAINI: "DATA.INI",       // DATA.INI filename
+	CLIENT_AUTOEXTRACT: true,         // true = auto extract GRF
+	CLIENT_ENABLESEARCH: true,        // true = enables POST /search route
 };
 ```
 
-#### Editar `index.js` - Configurar CORS
+#### Edit `index.js` - Configure CORS
 
 ```javascript
-const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'https://seu-dominio.com';
+const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'https://your-domain.com';
 
 const corsOptions = {
   origin: [CLIENT_PUBLIC_URL, 'http://localhost:3338'],
@@ -208,90 +208,94 @@ const corsOptions = {
 };
 ```
 
-Substitua `https://seu-dominio.com` pelo domínio onde o roBrowser está rodando.
+Replace `https://your-domain.com` with the domain where roBrowser is running.
 
-### 4. Configurar Variáveis de Ambiente (Opcional)
+### 4. Environment Variables (Optional)
 
-Crie um arquivo `.env` na raiz do projeto:
+Create a `.env` file in the project root:
 
 ```env
 PORT=3338
-CLIENT_PUBLIC_URL=https://seu-dominio.com
+CLIENT_PUBLIC_URL=https://your-domain.com
 ```
 
 ---
 
-## ▶️ Executar o Servidor
+## ▶️ Run the Server
 
 ```bash
 npm run start
 ```
 
-O servidor iniciará na porta **3338** (ou na porta definida em `PORT`).
+The server will start on port **3338** (or the port set in `PORT`).
 
-Acesse: `http://localhost:3338`
+Access: `http://localhost:3338`
 
 ---
 
 ## 🔌 API Endpoints
 
-| Método | Rota | Descrição | Parâmetros |
-|--------|------|-----------|------------|
-| GET | `/` | Retorna o arquivo `index.html` | - |
-| GET | `/*` | Serve qualquer arquivo do cliente | Caminho do arquivo na URL |
-| POST | `/search` | Busca arquivos por regex | `{ "filter": "regex" }` |
-| GET | `/list-files` | Lista todos os arquivos disponíveis | - |
+| Method | Route         | Description               | Params                  |
+| ------ | ------------- | ------------------------- | ----------------------- |
+| GET    | `/`           | Returns `index.html`      | -                       |
+| GET    | `/*`          | Serves any client file    | File path in the URL    |
+| POST   | `/search`     | Searches files by regex   | `{ "filter": "regex" }` |
+| GET    | `/list-files` | Lists all available files | -                       |
 
-### Exemplos de Uso
+### Usage Examples
 
-**Buscar arquivos:**
+**Search files:**
+
 ```bash
 curl -X POST http://localhost:3338/search \
   -H "Content-Type: application/json" \
   -d '{"filter": "sprite.*\\.spr"}'
 ```
 
-**Listar arquivos:**
+**List files:**
+
 ```bash
 curl http://localhost:3338/list-files
 ```
 
-**Baixar arquivo:**
+**Download a file:**
+
 ```bash
 curl http://localhost:3338/data/sprite/player.spr
 ```
 
 ---
 
-## 📝 Notas Importantes
+## Important Notes
 
-1. **GRF Version**: Apenas GRF versão 0x200 sem criptografia DES é suportado
-2. **DATA.INI**: Obrigatório no diretório `resources/`
-3. **Cache**: Arquivos extraídos são cacheados para melhor performance
-4. **CORS**: Configure corretamente o `CLIENT_PUBLIC_URL` para evitar erros de CORS
-5. **Gitignore**: Os diretórios `BGM/`, `data/`, `resources/`, `System/` e `AI/` estão no `.gitignore` para não versionar arquivos do cliente
-
----
-
-## 🛠️ Desenvolvimento
-
-### Scripts de Teste
-
-- `test-grf.js` - Testa extração de arquivos GRF
-- `test-ini-normalize.js` - Testa normalização de arquivos INI
-
-### Estrutura do Código
-
-- **MVC Pattern**: Controllers gerenciam lógica, Routes definem endpoints
-- **Middleware**: Debug e CORS configuráveis
-- **Utils**: Funções utilitárias para conversão de arquivos
+1. **GRF Version**: Only GRF version 0x200 without DES encryption is supported
+2. **DATA.INI**: Required inside `resources/`
+3. **Cache**: Extracted files are cached for better performance
+4. **CORS**: Configure `CLIENT_PUBLIC_URL` correctly to avoid CORS errors
+5. **Gitignore**: `BGM/`, `data/`, `resources/`, `System/` and `AI/` directories are in `.gitignore` to avoid versioning client files
 
 ---
 
-## 📄 Licença
+## Development
+
+### Test Scripts
+
+* `test-grf.js` - Tests GRF file extraction
+* `test-ini-normalize.js` - Tests INI file normalization
+
+### Code Structure
+
+* **MVC Pattern**: Controllers handle logic, Routes define endpoints
+* **Middleware**: Configurable debug and CORS
+* **Utils**: Utility functions for file conversion
+
+---
+
+## License
 
 GNU GPL V3
 
-## 👤 Autor
+## 👤 Author
 
 Vincent Thibault
+Francisco Wallison
