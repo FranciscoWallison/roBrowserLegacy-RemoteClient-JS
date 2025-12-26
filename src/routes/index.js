@@ -31,8 +31,12 @@ router.get('/*', async (req, res) => {
   const filePath = req.params[0];
 
   if (filePath === '') {
+    const indexPath = path.join(__dirname, '..', '..', 'index.html');
+    if (!fs.existsSync(indexPath)) {
+      return res.status(404).send('index.html not found. Please create an index.html file in the project root.');
+    }
     res.type(path.extname('index.html'));
-    return res.send(fs.readFileSync('index.html','utf8'));
+    return res.send(fs.readFileSync(indexPath,'utf8'));
   }
   
   const fileContent = await Client.getFile(filePath);
