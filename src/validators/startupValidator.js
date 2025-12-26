@@ -1,10 +1,10 @@
-const fs = require('fs');
-const path = require('path');
-const { execSync } = require('child_process');
+const fs = require("fs");
+const path = require("path");
+const { execSync } = require("child_process");
 
 /**
- * Sistema de validação de startup
- * Valida recursos, configurações e dependências antes de iniciar o servidor
+ * Startup validation system
+ * Validates resources, configuration and dependencies before starting the server
  */
 class StartupValidator {
   constructor() {
@@ -16,90 +16,88 @@ class StartupValidator {
       files: null,
       env: null,
       dependencies: null,
-      nodeVersion: null
+      nodeVersion: null,
     };
   }
 
-  /**
-   * Adiciona um erro fatal
-   */
   addError(message) {
     this.errors.push(message);
   }
 
-  /**
-   * Adiciona um aviso
-   */
   addWarning(message) {
     this.warnings.push(message);
   }
 
-  /**
-   * Adiciona informação
-   */
   addInfo(message) {
     this.info.push(message);
   }
 
-  /**
-   * Valida versão do Node.js e npm
-   */
   validateNodeVersion() {
     try {
       const nodeVersion = process.version;
-      const npmVersion = execSync('npm --version', { encoding: 'utf-8' }).trim();
+      const npmVersion = execSync("npm --version", {
+        encoding: "utf-8",
+      }).trim();
 
       this.validationResults.nodeVersion = {
         node: nodeVersion,
         npm: npmVersion,
-        valid: true
+        valid: true,
       };
 
       this.addInfo(`Node.js: ${nodeVersion}`);
       this.addInfo(`npm: ${npmVersion}`);
 
-      // Verificar versão mínima do Node
-      const majorVersion = parseInt(nodeVersion.replace('v', '').split('.')[0]);
+      const majorVersion = parseInt(
+        nodeVersion.replace("v", "").split(".")[0],
+        10
+      );
       if (majorVersion < 14) {
-        this.addWarning(`Node.js versão ${nodeVersion} pode ser muito antiga. Recomendado: v14 ou superior`);
+        this.addWarning(
+          `Node.js version ${nodeVersion} may be too old. Recommended: v14 or newer`
+        );
       }
 
       return true;
     } catch (error) {
-      this.addError(`Erro ao verificar versão do Node.js/npm: ${error.message}`);
-      this.validationResults.nodeVersion = { valid: false, error: error.message };
+      this.addError(`Failed to check Node.js/npm version: ${error.message}`);
+      this.validationResults.nodeVersion = {
+        valid: false,
+        error: error.message,
+      };
       return false;
     }
   }
 
-  /**
-   * Valida se node_modules existe e dependências estão instaladas
-   */
   validateDependencies() {
-    const nodeModulesPath = path.join(process.cwd(), 'node_modules');
-    const packageJsonPath = path.join(process.cwd(), 'package.json');
+    const nodeModulesPath = path.join(process.cwd(), "node_modules");
+    const packageJsonPath = path.join(process.cwd(), "package.json");
 
     if (!fs.existsSync(packageJsonPath)) {
-      this.addError('package.json não encontrado!');
-      this.validationResults.dependencies = { installed: false, reason: 'package.json missing' };
+      this.addError("package.json not found!");
+      this.validationResults.dependencies = {
+        installed: false,
+        reason: "package.json missing",
+      };
       return false;
     }
 
     if (!fs.existsSync(nodeModulesPath)) {
       const nodeVersion = this.validationResults.nodeVersion;
-      const versionInfo = nodeVersion ? `\n  Node.js: ${nodeVersion.node}\n  npm: ${nodeVersion.npm}` : '';
+      const versionInfo = nodeVersion
+        ? `\n  Node.js: ${nodeVersion.node}\n  npm: ${nodeVersion.npm}`
+        : "";
 
-      this.addError(
-        `Dependências não instaladas!\n` +
-        `Execute: npm install${versionInfo}`
-      );
-      this.validationResults.dependencies = { installed: false, reason: 'node_modules missing' };
+      this.addError(`Dependencies not installed!\nRun: npm install${versionInfo}`);
+      this.validationResults.dependencies = {
+        installed: false,
+        reason: "node_modules missing",
+      };
       return false;
     }
 
-    // Verificar dependências essenciais
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
-    const requiredDeps = ['express', 'cors', '@chicowall/grf-loader'];
+    // Check essential dependencies
+    const requiredDeps = ["express", "cors", "@chicowall/grf-loader"];
     const missingDeps = [];
 
     for (const dep of requiredDeps) {
@@ -111,38 +109,42 @@ class StartupValidator {
 
     if (missingDeps.length > 0) {
       this.addError(
-        `Dependências essenciais faltando: ${missingDeps.join(', ')}\n` +
-        `Execute: npm install`
+        `Missing essential dependencies: ${missingDeps.join(", ")}\nRun: npm install`
       );
       this.validationResults.dependencies = { installed: false, missingDeps };
       return false;
     }
 
-    this.addInfo('Dependências instaladas corretamente');
+    this.addInfo("Dependencies installed correctly");
     this.validationResults.dependencies = { installed: true };
     return true;
   }
 
   /**
-   * Valida arquivos GRF (versão 0x200 sem criptografia DES)
+   * Validate GRF files (version 0x200 with no DES encryption)
    */
   async validateGrfs() {
-    const resourcesPath = path.join(process.cwd(), 'resources');
-    const dataIniPath = path.join(resourcesPath, 'DATA.INI');
+    const resourcesPath = path.join(process.cwd(), "resources");
+    const dataIniPath = path.join(resourcesPath, "DATA.INI");
 
     if (!fs.existsSync(dataIniPath)) {
-      this.addError('resources/DATA.INI não encontrado!');
-      this.validationResults.grfs = { valid: false, reason: 'DATA.INI missing' };
+      this.addError("resources/DATA.INI not found!");
+      this.validationResults.grfs = {
+        valid: false,
+        reason: "DATA.INI missing",
+      };
       return false;
     }
 
-    // Ler DATA.INI e extrair lista de GRFs
-    const dataIniContent = fs.readFileSync(dataIniPath, 'utf-8');
+    const dataIniContent = fs.readFileSync(dataIniPath, "utf-8");
     const grfFiles = this.parseDataINI(dataIniContent);
 
     if (grfFiles.length === 0) {
-      this.addError('Nenhum arquivo GRF encontrado em resources/DATA.INI!');
-      this.validationResults.grfs = { valid: false, reason: 'No GRF files in DATA.INI' };
+      this.addError("No GRF files found in resources/DATA.INI!");
+      this.validationResults.grfs = {
+        valid: false,
+        reason: "No GRF files in DATA.INI",
+      };
       return false;
     }
 
@@ -153,65 +155,77 @@ class StartupValidator {
       const grfPath = path.join(resourcesPath, grfFile);
 
       if (!fs.existsSync(grfPath)) {
-        this.addError(`GRF não encontrado: ${grfFile}`);
+        this.addError(`GRF not found: ${grfFile}`);
         grfResults.push({ file: grfFile, exists: false });
         hasInvalidGrf = true;
         continue;
       }
 
-      // Validar versão e criptografia do GRF
-      const validation = this.validateGrfFormat(grfPath);
+      const validation = await this.validateGrfFormat(grfPath);
       grfResults.push({ file: grfFile, exists: true, ...validation });
 
       if (!validation.valid) {
-        this.addError(
-          `GRF incompatível: ${grfFile}\n` +
-          `  Versão: ${validation.version} (esperado: 0x200)\n` +
-          `  Criptografia DES: ${validation.hasEncryption ? 'SIM' : 'NÃO'} (esperado: NÃO)\n\n` +
-          `  SOLUÇÃO: Reempacotar com GRF Builder:\n` +
-          `  1. Abra o GRF Builder\n` +
-          `  2. File → Option → Repack type → Decrypt\n` +
-          `  3. Clique em Repack`
-        );
+        let errorMsg = `Incompatible GRF: ${grfFile}\n`;
+
+        if (
+          validation.version &&
+          validation.version !== "0x200" &&
+          validation.version !== "unknown"
+        ) {
+          errorMsg += `  ❌ Version: ${validation.version} (expected: 0x200)\n`;
+        }
+
+        errorMsg += `  ❌ ${validation.reason}\n`;
+
+        errorMsg += `\n  📦 FIX: Repack with GRF Builder:\n`;
+        errorMsg += `  1. Download GRF Builder: https://github.com/Tokeiburu/GRFEditor\n`;
+        errorMsg += `  2. Open GRF Builder\n`;
+        errorMsg += `  3. File → Options → Repack type → Decrypt\n`;
+        errorMsg += `  4. Click: Tools → Repack\n`;
+        errorMsg += `  5. Wait for completion and replace the original file`;
+
+        this.addError(errorMsg);
         hasInvalidGrf = true;
       } else {
-        this.addInfo(`GRF válido: ${grfFile} (versão 0x200, sem DES)`);
+        this.addInfo(
+          `Valid GRF: ${grfFile} (version 0x200, compatible with the library)`
+        );
       }
     }
 
     this.validationResults.grfs = {
       valid: !hasInvalidGrf,
       files: grfResults,
-      count: grfFiles.length
+      count: grfFiles.length,
     };
 
     return !hasInvalidGrf;
   }
 
-  /**
-   * Parse DATA.INI para extrair lista de GRFs
-   */
   parseDataINI(content) {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const grfFiles = [];
     let inDataSection = false;
 
     for (let line of lines) {
       line = line.trim();
 
-      if (line.toLowerCase() === '[data]') {
+      if (!line || line.startsWith(";") || line.startsWith("#")) continue;
+
+      if (line.toLowerCase() === "[data]") {
         inDataSection = true;
         continue;
       }
 
-      if (line.startsWith('[') && line.endsWith(']')) {
+      if (line.startsWith("[") && line.endsWith("]")) {
         inDataSection = false;
         continue;
       }
 
-      if (inDataSection && line.includes('=')) {
-        const [, value] = line.split('=');
-        if (value && value.trim().toLowerCase().endsWith('.grf')) {
+      if (inDataSection && line.includes("=")) {
+        const parts = line.split("=");
+        const value = parts.slice(1).join("=");
+        if (value && value.trim().toLowerCase().endsWith(".grf")) {
           grfFiles.push(value.trim());
         }
       }
@@ -221,65 +235,108 @@ class StartupValidator {
   }
 
   /**
-   * Valida formato do arquivo GRF
-   * Verifica versão 0x200 e ausência de criptografia DES
+   * Validate GRF file format
+   * Tests whether @chicowall/grf-loader can actually load the GRF
    */
-  validateGrfFormat(grfPath) {
-    try {
-      const fd = fs.openSync(grfPath, 'r');
-      const buffer = Buffer.alloc(46); // Header GRF é 46 bytes
-      fs.readSync(fd, buffer, 0, 46, 0);
-      fs.closeSync(fd);
+  async validateGrfFormat(grfPath) {
+    const { GrfNode } = require("@chicowall/grf-loader");
 
-      // Magic bytes: "Master of Magic" (15 bytes)
-      const magic = buffer.toString('ascii', 0, 15);
-      if (magic !== 'Master of Magic') {
+    let fd = null;
+
+    try {
+      // Open file
+      fd = fs.openSync(grfPath, "r");
+
+      // Read header to check version
+      const buffer = Buffer.alloc(46);
+      fs.readSync(fd, buffer, 0, 46, 0);
+
+      // Magic bytes
+      const magic = buffer.toString("ascii", 0, 15);
+
+      if (magic !== "Master of Magic") {
+        if (fd) fs.closeSync(fd);
         return {
           valid: false,
-          version: 'unknown',
-          hasEncryption: false,
-          reason: 'Magic bytes inválidos'
+          version: "unknown",
+          compatible: false,
+          reason: "Invalid magic bytes - not a valid GRF file",
         };
       }
 
-      // Encryption key (14 bytes no offset 15)
-      const encryptionKey = buffer.slice(15, 29);
-
-      // Version (offset 42, 4 bytes, little-endian)
+      // Version
       const version = buffer.readUInt32LE(42);
-      const versionHex = '0x' + version.toString(16).toUpperCase();
+      const versionHex = "0x" + version.toString(16).toUpperCase();
 
-      // Verificar se tem criptografia DES (encryption key não é zero)
-      const hasEncryption = !encryptionKey.every(byte => byte === 0);
+      // Check version
+      if (version !== 0x200) {
+        if (fd) fs.closeSync(fd);
+        return {
+          valid: false,
+          version: versionHex,
+          compatible: false,
+          reason: `Version ${versionHex} is not supported (expected: 0x200)`,
+        };
+      }
 
-      const isValid = version === 0x200 && !hasEncryption;
+      // REAL TEST: try to load using the library
+      const testFd = fs.openSync(grfPath, "r");
+      const grf = new GrfNode(testFd);
 
-      return {
-        valid: isValid,
-        version: versionHex,
-        hasEncryption,
-        reason: isValid ? 'OK' : 'Versão ou criptografia incompatível'
-      };
+      try {
+        // Try loading (10s timeout)
+        const loadPromise = grf.load();
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("GRF load timeout")), 10000)
+        );
+
+        await Promise.race([loadPromise, timeoutPromise]);
+
+        // If we got here, the GRF is compatible
+        fs.closeSync(testFd);
+        if (fd) fs.closeSync(fd);
+
+        return {
+          valid: true,
+          version: versionHex,
+          compatible: true,
+          reason: "GRF loaded successfully by the library",
+        };
+      } catch (loadError) {
+        // Failed to load - incompatible
+        fs.closeSync(testFd);
+        if (fd) fs.closeSync(fd);
+
+        return {
+          valid: false,
+          version: versionHex,
+          compatible: false,
+          reason: `Library failed to load: ${loadError.message}`,
+        };
+      }
     } catch (error) {
+      if (fd) {
+        try {
+          fs.closeSync(fd);
+        } catch (e) {}
+      }
+
       return {
         valid: false,
-        version: 'error',
-        hasEncryption: false,
-        reason: `Erro ao ler GRF: ${error.message}`
+        version: "error",
+        compatible: false,
+        reason: `Failed to validate GRF: ${error.message}`,
       };
     }
   }
 
-  /**
-   * Valida arquivos e pastas obrigatórios
-   */
   validateRequiredFiles() {
     const checks = [
-      { path: 'resources', type: 'dir', required: true, name: 'Pasta resources/' },
-      { path: 'resources/DATA.INI', type: 'file', required: true, name: 'Arquivo DATA.INI' },
-      { path: 'BGM', type: 'dir', required: false, name: 'Pasta BGM/' },
-      { path: 'data', type: 'dir', required: false, name: 'Pasta data/' },
-      { path: 'System', type: 'dir', required: false, name: 'Pasta System/' },
+      { path: "resources", type: "dir", required: true, name: "resources/ folder" },
+      { path: "resources/DATA.INI", type: "file", required: true, name: "DATA.INI file" },
+      { path: "BGM", type: "dir", required: false, name: "BGM/ folder" },
+      { path: "data", type: "dir", required: false, name: "data/ folder" },
+      { path: "System", type: "dir", required: false, name: "System/ folder" },
     ];
 
     let hasErrors = false;
@@ -289,17 +346,20 @@ class StartupValidator {
       const fullPath = path.join(process.cwd(), check.path);
       const exists = fs.existsSync(fullPath);
 
-      if (check.type === 'dir') {
-        const isEmpty = exists ? fs.readdirSync(fullPath).filter(f => !f.startsWith('add-')).length === 0 : true;
+      if (check.type === "dir") {
+        const isEmpty = exists
+          ? fs.readdirSync(fullPath).filter((f) => !f.startsWith("add-")).length === 0
+          : true;
+
         results.push({ ...check, exists, isEmpty });
 
         if (check.required && !exists) {
-          this.addError(`${check.name} não encontrada!`);
+          this.addError(`${check.name} not found!`);
           hasErrors = true;
         } else if (check.required && isEmpty) {
-          this.addWarning(`${check.name} está vazia`);
+          this.addWarning(`${check.name} is empty`);
         } else if (!check.required && isEmpty) {
-          this.addWarning(`${check.name} vazia - pode causar problemas dependendo do client`);
+          this.addWarning(`${check.name} is empty - may cause issues depending on the client`);
         } else {
           this.addInfo(`${check.name} OK`);
         }
@@ -307,7 +367,7 @@ class StartupValidator {
         results.push({ ...check, exists });
 
         if (check.required && !exists) {
-          this.addError(`${check.name} não encontrado!`);
+          this.addError(`${check.name} not found!`);
           hasErrors = true;
         } else if (exists) {
           this.addInfo(`${check.name} OK`);
@@ -315,198 +375,163 @@ class StartupValidator {
       }
     }
 
-    this.validationResults.files = {
-      valid: !hasErrors,
-      checks: results
-    };
-
+    this.validationResults.files = { valid: !hasErrors, checks: results };
     return !hasErrors;
   }
 
-  /**
-   * Valida variáveis de ambiente
-   */
   validateEnvironment() {
     const envVars = {
-      PORT: { value: process.env.PORT, default: '3338', required: false },
+      PORT: { value: process.env.PORT, default: "3338", required: false },
       CLIENT_PUBLIC_URL: { value: process.env.CLIENT_PUBLIC_URL, default: null, required: true },
-      NODE_ENV: { value: process.env.NODE_ENV, default: 'development', required: false }
+      NODE_ENV: { value: process.env.NODE_ENV, default: "development", required: false },
     };
 
     let hasErrors = false;
     const results = {};
 
-    // Validar PORT
     if (!envVars.PORT.value) {
-      this.addWarning(`PORT não definida, usando padrão: ${envVars.PORT.default}`);
+      this.addWarning(`PORT not set, using default: ${envVars.PORT.default}`);
       results.PORT = { defined: false, usingDefault: true, value: envVars.PORT.default };
     } else {
       this.addInfo(`PORT: ${envVars.PORT.value}`);
       results.PORT = { defined: true, value: envVars.PORT.value };
     }
 
-    // Validar CLIENT_PUBLIC_URL
     if (!envVars.CLIENT_PUBLIC_URL.value) {
-      this.addError('CLIENT_PUBLIC_URL não definida! Configure no arquivo .env');
+      this.addError('CLIENT_PUBLIC_URL not set! Configure it in the .env file');
       hasErrors = true;
-      results.CLIENT_PUBLIC_URL = { defined: false, error: 'Variable not set' };
+      results.CLIENT_PUBLIC_URL = { defined: false, error: "Variable not set" };
     } else {
-      // Validar formato de URL
       try {
         new URL(envVars.CLIENT_PUBLIC_URL.value);
         this.addInfo(`CLIENT_PUBLIC_URL: ${envVars.CLIENT_PUBLIC_URL.value}`);
         results.CLIENT_PUBLIC_URL = { defined: true, value: envVars.CLIENT_PUBLIC_URL.value };
-      } catch (error) {
-        this.addError(`CLIENT_PUBLIC_URL inválida: ${envVars.CLIENT_PUBLIC_URL.value}`);
+      } catch {
+        this.addError(`Invalid CLIENT_PUBLIC_URL: ${envVars.CLIENT_PUBLIC_URL.value}`);
         hasErrors = true;
-        results.CLIENT_PUBLIC_URL = { defined: true, invalid: true, value: envVars.CLIENT_PUBLIC_URL.value };
+        results.CLIENT_PUBLIC_URL = {
+          defined: true,
+          invalid: true,
+          value: envVars.CLIENT_PUBLIC_URL.value,
+        };
       }
     }
 
-    // Validar NODE_ENV
     const nodeEnv = envVars.NODE_ENV.value || envVars.NODE_ENV.default;
     results.NODE_ENV = { defined: !!envVars.NODE_ENV.value, value: nodeEnv };
 
-    if (nodeEnv === 'production') {
-      // Verificar se DEBUG está habilitado em produção
-      const configs = require('../config/configs');
+    if (nodeEnv === "production") {
+      const configs = require("../config/configs");
       if (configs.DEBUG) {
-        this.addWarning('DEBUG habilitado em ambiente de PRODUÇÃO!');
+        this.addWarning("DEBUG is enabled in PRODUCTION!");
       }
     }
 
     if (!envVars.NODE_ENV.value) {
-      this.addWarning(`NODE_ENV não definida, usando: ${nodeEnv}`);
+      this.addWarning(`NODE_ENV not set, using: ${nodeEnv}`);
     } else {
       this.addInfo(`NODE_ENV: ${nodeEnv}`);
     }
 
-    // Verificar se existe arquivo .env
-    const envPath = path.join(process.cwd(), '.env');
-    const envExamplePath = path.join(process.cwd(), '.env.example');
-
+    const envPath = path.join(process.cwd(), ".env");
+    const envExamplePath = path.join(process.cwd(), ".env.example");
     if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
-      this.addWarning('Arquivo .env não encontrado! Copie de .env.example e configure');
+      this.addWarning(".env file not found! Copy .env.example to .env and configure it");
     }
 
-    this.validationResults.env = {
-      valid: !hasErrors,
-      variables: results
-    };
-
+    this.validationResults.env = { valid: !hasErrors, variables: results };
     return !hasErrors;
   }
 
-  /**
-   * Executa todas as validações
-   */
   async validateAll() {
-    console.log('\n🔍 Validando configurações de startup...\n');
+    console.log("\n🔍 Validating startup configuration...\n");
 
-    // 1. Validar versão do Node
     this.validateNodeVersion();
 
-    // 2. Validar dependências
     const depsValid = this.validateDependencies();
-    if (!depsValid) {
-      return this.getResults();
-    }
+    if (!depsValid) return this.getResults();
 
-    // 3. Validar arquivos obrigatórios
     this.validateRequiredFiles();
-
-    // 4. Validar variáveis de ambiente
     this.validateEnvironment();
-
-    // 5. Validar GRFs
     await this.validateGrfs();
 
     return this.getResults();
   }
 
-  /**
-   * Retorna resultados da validação
-   */
   getResults() {
     return {
       success: this.errors.length === 0,
       errors: this.errors,
       warnings: this.warnings,
       info: this.info,
-      details: this.validationResults
+      details: this.validationResults,
     };
   }
 
-  /**
-   * Imprime relatório de validação
-   */
+  _printMultiline(prefix, text) {
+    for (const line of String(text).split("\n")) {
+      console.log(prefix + line);
+    }
+  }
+
   printReport(results = null) {
-    if (!results) {
-      results = this.getResults();
-    }
+    if (!results) results = this.getResults();
 
-    console.log('\n' + '='.repeat(80));
-    console.log('📋 RELATÓRIO DE VALIDAÇÃO');
-    console.log('='.repeat(80) + '\n');
+    console.log("\n" + "=".repeat(80));
+    console.log("📋 VALIDATION REPORT");
+    console.log("=".repeat(80) + "\n");
 
-    // Informações
     if (results.info.length > 0) {
-      console.log('✓ INFORMAÇÕES:');
-      results.info.forEach(info => console.log(`  ${info}`));
-      console.log('');
+      console.log("✓ INFO:");
+      results.info.forEach((msg) => this._printMultiline("  ", msg));
+      console.log("");
     }
 
-    // Avisos
     if (results.warnings.length > 0) {
-      console.log('⚠️  AVISOS:');
-      results.warnings.forEach(warning => console.log(`  ${warning}`));
-      console.log('');
+      console.log("⚠️  WARNINGS:");
+      results.warnings.forEach((msg) => this._printMultiline("  ", msg));
+      console.log("");
     }
 
-    // Erros
     if (results.errors.length > 0) {
-      console.log('❌ ERROS:');
-      results.errors.forEach(error => console.log(`  ${error}`));
-      console.log('');
+      console.log("❌ ERRORS:");
+      results.errors.forEach((msg) => this._printMultiline("  ", msg));
+      console.log("");
     }
 
-    // Resultado final
-    console.log('='.repeat(80));
+    console.log("=".repeat(80));
     if (results.success) {
-      console.log('✅ Validação concluída com sucesso!');
+      console.log("✅ Validation completed successfully!");
       if (results.warnings.length > 0) {
-        console.log(`⚠️  ${results.warnings.length} aviso(s) encontrado(s)`);
+        console.log(`⚠️  ${results.warnings.length} warning(s) found`);
       }
     } else {
-      console.log('❌ Validação falhou!');
-      console.log(`   ${results.errors.length} erro(s) encontrado(s)`);
-      console.log('\n💡 Dica: Execute "npm run doctor" para diagnóstico detalhado');
+      console.log("❌ Validation failed!");
+      console.log(`   ${results.errors.length} error(s) found`);
+      console.log('\n💡 Tip: Run "npm run doctor" for a detailed diagnosis');
     }
-    console.log('='.repeat(80) + '\n');
+    console.log("=".repeat(80) + "\n");
 
     return results.success;
   }
 
-  /**
-   * Gera JSON com status de validação (para API/frontend)
-   */
   getStatusJSON() {
     const results = this.getResults();
     return {
       timestamp: new Date().toISOString(),
-      status: results.success ? 'ok' : 'error',
+      status: results.success ? "ok" : "error",
       hasWarnings: results.warnings.length > 0,
       summary: {
         errors: results.errors.length,
         warnings: results.warnings.length,
-        info: results.info.length
+        info: results.info.length,
       },
       details: results.details,
       messages: {
         errors: results.errors,
         warnings: results.warnings,
-        info: results.info
-      }
+        info: results.info,
+      },
     };
   }
 }
