@@ -14,13 +14,13 @@ Because pushing directly the fullclient on a server/ftp can provoke some errors,
 Just put your GRFs files and DATA.INI file in the `resources/` directory.
 Overwrite the `BGM/`, `data/` and `System/` directories with your own folders.
 
-**Note: to be sure to use a compatible version of your GRFs, download *GRF Builder* and repack them manually (Option > Repack type > Decrypt -> Repack), it will ensure the GRFs files are converted in the proper version**
+**Note: to be sure to use a compatible version of your GRFs, download *GRF Builder* and repack them manually (File -> Option > Repack type > Decrypt -> Repack), it will ensure the GRFs files are converted in the proper version**
 
 -----------------
 
  ### Configure the remote client ### 
 
-Open *config/configs.js file and complete it
+Open *src/config/configs.js file and complete it
 
 ----------------
 
