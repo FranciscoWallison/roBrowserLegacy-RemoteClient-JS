@@ -164,15 +164,34 @@ class StartupValidator {
       grfResults.push({ file: grfFile, exists: true, ...validation });
 
       if (!validation.valid) {
-        this.addError(
-          `GRF incompatível: ${grfFile}\n` +
-          `  Versão: ${validation.version} (esperado: 0x200)\n` +
-          `  Criptografia DES: ${validation.hasEncryption ? 'SIM' : 'NÃO'} (esperado: NÃO)\n\n` +
-          `  SOLUÇÃO: Reempacotar com GRF Builder:\n` +
-          `  1. Abra o GRF Builder\n` +
-          `  2. File → Option → Repack type → Decrypt\n` +
-          `  3. Clique em Repack`
-        );
+        // Construir mensagem de erro específica
+        let errorMsg = `GRF incompatível: ${grfFile}\n`;
+        const issues = [];
+
+        // Verificar qual é o problema específico
+        const version = parseInt(validation.version.replace('0x', ''), 16);
+        const isVersionWrong = version !== 0x200;
+        const hasEncryption = validation.hasEncryption;
+
+        if (isVersionWrong) {
+          issues.push(`  ❌ Versão: ${validation.version} (esperado: 0x200)`);
+        }
+
+        if (hasEncryption) {
+          issues.push(`  ❌ Criptografia DES: SIM (esperado: NÃO)`);
+        }
+
+        if (issues.length > 0) {
+          errorMsg += issues.join('\n') + '\n\n';
+        }
+
+        errorMsg += `  📦 SOLUÇÃO: Reempacotar com GRF Builder:\n`;
+        errorMsg += `  1. Abra o GRF Builder\n`;
+        errorMsg += `  2. File → Options → Repack type → Decrypt\n`;
+        errorMsg += `  3. Clique em: Tools → Repack\n`;
+        errorMsg += `  4. Aguarde a conclusão e substitua o arquivo original`;
+
+        this.addError(errorMsg);
         hasInvalidGrf = true;
       } else {
         this.addInfo(`GRF válido: ${grfFile} (versão 0x200, sem DES)`);
