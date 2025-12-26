@@ -2,7 +2,7 @@
 
 Remote client that lets users play Ragnarok Online by downloading resources from an external server, without needing the FullClient installed locally.
 
-## 📋 Features
+## Features
 
 * Support for files from multiple domains (Cross-Origin Resource Sharing — CORS)
 * Automatic extraction of GRF files (version 0x200 — without DES encryption)
@@ -107,7 +107,7 @@ roBrowserLegacy-RemoteClient-JS/
 
 ---
 
-## 🚀 Installation and Setup
+## Installation and Setup
 
 ### 1. Install Dependencies
 
@@ -129,7 +129,7 @@ resources/
 └── *.grf             # Other required GRF files
 ```
 
-** IMPORTANT:** To ensure compatibility, use **GRF Builder** to repack your GRFs:
+**IMPORTANT:** To ensure compatibility, use **GRF Builder** to repack your GRFs:
 
 1. Open GRF Builder
 2. File → Option → Repack type → **Decrypt**
@@ -199,7 +199,7 @@ module.exports = {
 #### Edit `index.js` - Configure CORS
 
 ```javascript
-const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'https://your-domain.com';
+const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'http://localhost:8000'; // 'https://your-domain.com';
 
 const corsOptions = {
   origin: [CLIENT_PUBLIC_URL, 'http://localhost:3338'],
