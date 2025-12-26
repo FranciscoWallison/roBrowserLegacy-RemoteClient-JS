@@ -22,7 +22,7 @@ const Client = {
 
     // Check if data section exists and has GRF files configured
     if (!dataIni.data || dataIni.data.length === 0) {
-      console.log('No GRF files configured in DATA.INI. Add GRF files to [Data] section.');
+      console.log('No GRF files configured in DATA.INI. Add GRF files to [data] section.');
       this.grfs = [];
       return;
     }
@@ -144,6 +144,10 @@ function parseIni(data) {
     } else if (regex.section.test(line)) {
       const match = line.match(regex.section);
       section = match[1];
+      // Normalizar seção "Data" para lowercase
+      if (section.toLowerCase() === 'data') {
+        section = 'data';
+      }
       if (!value[section]) {
         value[section] = [];
       }
