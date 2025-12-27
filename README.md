@@ -1,7 +1,3 @@
-Here’s the full file translated to English (same structure/formatting). 
-
----
-
 # roBrowser Legacy Remote Client (Node.js)
 
 Remote client that lets users play Ragnarok Online by downloading resources from an external server, without needing the FullClient installed locally.
