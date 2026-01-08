@@ -19,6 +19,7 @@ class StartupValidator {
       env: null,
       dependencies: null,
       nodeVersion: null,
+      encoding: null, // NEW: detailed encoding validation
     };
   }
 
@@ -609,6 +610,139 @@ class StartupValidator {
     }
   }
 
+  /**
+   * Deep encoding validation using @chicowall/grf-loader
+   * Validates ALL files in GRFs and returns detailed encoding statistics
+   */
+  async validateEncodingDeep(grfFiles) {
+    const { GrfNode, isMojibake, fixMojibake, hasIconvLite } = require("@chicowall/grf-loader");
+    const resourcesPath = path.join(process.cwd(), "resources");
+
+    const results = {
+      iconvAvailable: hasIconvLite(),
+      grfs: [],
+      summary: {
+        totalFiles: 0,
+        badUfffd: 0,
+        badC1Control: 0,
+        mojibakeDetected: 0,
+        needsConversion: 0,
+        healthPercent: 100,
+      },
+      filesToConvert: [],
+    };
+
+    // Helper: check for C1 controls (U+0080..U+009F)
+    const hasC1Controls = (s) => {
+      for (let i = 0; i < s.length; i++) {
+        const c = s.charCodeAt(i);
+        if (c >= 0x80 && c <= 0x9f) return true;
+      }
+      return false;
+    };
+
+    for (const grfFile of grfFiles) {
+      const grfPath = path.join(resourcesPath, grfFile);
+      if (!fs.existsSync(grfPath)) continue;
+
+      let fd = null;
+      const grfResult = {
+        file: grfFile,
+        totalFiles: 0,
+        badUfffd: 0,
+        badC1Control: 0,
+        mojibakeDetected: 0,
+        examples: {
+          badUfffd: [],
+          badC1Control: [],
+          mojibake: [],
+        },
+        detectedEncoding: null,
+      };
+
+      try {
+        fd = fs.openSync(grfPath, "r");
+        const grf = new GrfNode(fd, { filenameEncoding: "auto" });
+        await grf.load();
+
+        const stats = grf.getStats?.() ?? {};
+        grfResult.totalFiles = stats.fileCount || 0;
+        grfResult.detectedEncoding = stats.detectedEncoding || "unknown";
+
+        // Iterate ALL files
+        const allFiles = grf.files ? Array.from(grf.files.keys()) : [];
+
+        for (const filename of allFiles) {
+          const s = String(filename);
+
+          // Check U+FFFD
+          if (s.includes("\uFFFD")) {
+            grfResult.badUfffd++;
+            if (grfResult.examples.badUfffd.length < 10) {
+              grfResult.examples.badUfffd.push(s);
+            }
+          }
+
+          // Check C1 controls
+          if (hasC1Controls(s)) {
+            grfResult.badC1Control++;
+            if (grfResult.examples.badC1Control.length < 10) {
+              grfResult.examples.badC1Control.push(s);
+            }
+          }
+
+          // Check mojibake
+          if (isMojibake(s)) {
+            grfResult.mojibakeDetected++;
+            if (grfResult.examples.mojibake.length < 10) {
+              const fixed = fixMojibake(s);
+              grfResult.examples.mojibake.push({ original: s, fixed });
+            }
+          }
+        }
+
+        // Update summary
+        results.summary.totalFiles += grfResult.totalFiles;
+        results.summary.badUfffd += grfResult.badUfffd;
+        results.summary.badC1Control += grfResult.badC1Control;
+        results.summary.mojibakeDetected += grfResult.mojibakeDetected;
+
+        // Files needing conversion (mojibake or C1)
+        const needsConv = grfResult.mojibakeDetected + grfResult.badC1Control;
+        results.summary.needsConversion += needsConv;
+
+        // Add examples to global list
+        grfResult.examples.mojibake.forEach((ex) => {
+          if (results.filesToConvert.length < 50) {
+            results.filesToConvert.push({ grf: grfFile, ...ex });
+          }
+        });
+
+        results.grfs.push(grfResult);
+      } catch (e) {
+        grfResult.error = e.message;
+        results.grfs.push(grfResult);
+      } finally {
+        if (fd !== null) {
+          try {
+            fs.closeSync(fd);
+          } catch {}
+        }
+      }
+    }
+
+    // Calculate health percentage
+    if (results.summary.totalFiles > 0) {
+      const badCount = results.summary.badUfffd + results.summary.badC1Control;
+      results.summary.healthPercent = parseFloat(
+        (((results.summary.totalFiles - badCount) / results.summary.totalFiles) * 100).toFixed(4)
+      );
+    }
+
+    this.validationResults.encoding = results;
+    return results;
+  }
+
   validateRequiredFiles() {
     const checks = [
       { path: "resources", type: "dir", required: true, name: "resources/ folder" },
@@ -720,7 +854,9 @@ class StartupValidator {
     return !hasErrors;
   }
 
-  async validateAll() {
+  async validateAll(options = {}) {
+    const { deepEncoding = false } = options;
+
     console.log("\n🔍 Validating startup configuration...\n");
 
     this.validateNodeVersion();
@@ -731,6 +867,39 @@ class StartupValidator {
     this.validateRequiredFiles();
     this.validateEnvironment();
     await this.validateGrfs();
+
+    // Deep encoding validation (optional, slower)
+    if (deepEncoding && this.validationResults.grfs?.files) {
+      const grfFiles = this.validationResults.grfs.files
+        .filter((g) => g.exists && g.valid)
+        .map((g) => g.file);
+
+      if (grfFiles.length > 0) {
+        console.log("🔍 Running deep encoding validation...\n");
+        const encodingResults = await this.validateEncodingDeep(grfFiles);
+
+        // Add encoding warnings
+        if (encodingResults.summary.mojibakeDetected > 0) {
+          this.addWarning(
+            `Mojibake detected: ${encodingResults.summary.mojibakeDetected} files need encoding conversion`
+          );
+        }
+        if (encodingResults.summary.badUfffd > 0) {
+          this.addWarning(
+            `U+FFFD characters: ${encodingResults.summary.badUfffd} files have replacement characters`
+          );
+        }
+        if (encodingResults.summary.badC1Control > 0) {
+          this.addWarning(
+            `C1 Control chars: ${encodingResults.summary.badC1Control} files have C1 control characters`
+          );
+        }
+
+        this.addInfo(
+          `Encoding health: ${encodingResults.summary.healthPercent}% (${encodingResults.summary.totalFiles} files)`
+        );
+      }
+    }
 
     return this.getResults();
   }

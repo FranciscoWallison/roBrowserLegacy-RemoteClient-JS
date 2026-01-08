@@ -112,6 +112,79 @@
       border-left: 4px solid #4caf50;
       margin: 20px 0;
     }
+    .encoding-card {
+      background-color: #f3e5f5;
+      padding: 15px;
+      border-left: 4px solid #9c27b0;
+      margin: 20px 0;
+      border-radius: 8px;
+    }
+    .encoding-stats {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+    .encoding-stat {
+      background-color: #fff;
+      padding: 10px;
+      border-radius: 4px;
+      text-align: center;
+    }
+    .encoding-stat-value {
+      font-size: 1.3em;
+      font-weight: bold;
+      color: #333;
+    }
+    .encoding-stat-label {
+      font-size: 0.8em;
+      color: #666;
+    }
+    .health-bar {
+      height: 20px;
+      background-color: #e0e0e0;
+      border-radius: 10px;
+      overflow: hidden;
+      margin: 10px 0;
+    }
+    .health-fill {
+      height: 100%;
+      background: linear-gradient(90deg, #4caf50, #8bc34a);
+      transition: width 0.3s ease;
+    }
+    .examples-list {
+      background-color: #f5f5f5;
+      padding: 10px;
+      border-radius: 4px;
+      font-family: monospace;
+      font-size: 0.8em;
+      max-height: 150px;
+      overflow-y: auto;
+      margin-top: 10px;
+    }
+    .example-item {
+      padding: 3px 0;
+      border-bottom: 1px solid #ddd;
+      word-break: break-all;
+    }
+    .example-item:last-child { border-bottom: none; }
+    .original { color: #d32f2f; }
+    .fixed { color: #388e3c; }
+    .btn-primary {
+      background-color: #9c27b0;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 0.9em;
+      margin-top: 10px;
+    }
+    .btn-primary:hover { background-color: #7b1fa2; }
+    .btn-primary:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
+    }
   </style>
 </head>
 <body>
@@ -121,6 +194,11 @@
     <!-- Validation Status -->
     <div id="validation-status" class="status-card">
       <div class="loading">⏳ Loading system status...</div>
+    </div>
+
+    <!-- Encoding Status -->
+    <div id="encoding-status" class="encoding-card" style="display: none;">
+      <div class="loading">⏳ Loading encoding status...</div>
     </div>
 
     <h2>📋 Setup Instructions</h2>
@@ -184,6 +262,7 @@
         const data = await response.json();
 
         const statusDiv = document.getElementById('validation-status');
+        const encodingDiv = document.getElementById('encoding-status');
 
         if (data.status === 'ok') {
           statusDiv.className = 'status-card status-ok';
@@ -233,6 +312,26 @@
         const timestamp = new Date(data.timestamp).toLocaleString('en-US');
         statusDiv.innerHTML += `<div style="margin-top: 15px; font-size: 0.85em; color: #666; text-align: right;">Last checked: ${timestamp}</div>`;
 
+        // Show encoding info if available
+        if (data.details && data.details.encoding) {
+          displayEncodingStatus(data.details.encoding);
+        } else {
+          // Show button to run deep validation
+          encodingDiv.style.display = 'block';
+          encodingDiv.innerHTML = `
+            <div class="status-header">
+              <span class="status-icon">📊</span>
+              <span>Encoding Validation</span>
+            </div>
+            <p style="margin: 10px 0; font-size: 0.9em;">
+              Run deep encoding validation to detect files with encoding issues (mojibake, C1 controls, U+FFFD).
+            </p>
+            <p style="font-size: 0.85em; color: #666;">
+              <code>npm run doctor -- --deep</code>
+            </p>
+          `;
+        }
+
       } catch (error) {
         const statusDiv = document.getElementById('validation-status');
         statusDiv.className = 'status-card status-warning';
@@ -246,6 +345,85 @@
           </div>
         `;
       }
+    }
+
+    // Display encoding status
+    function displayEncodingStatus(encoding) {
+      const encodingDiv = document.getElementById('encoding-status');
+      encodingDiv.style.display = 'block';
+
+      const healthColor = encoding.summary.healthPercent >= 99 ? '#4caf50' :
+                         encoding.summary.healthPercent >= 95 ? '#ff9800' : '#f44336';
+
+      let examplesHtml = '';
+      if (encoding.filesToConvert && encoding.filesToConvert.length > 0) {
+        examplesHtml = `
+          <div style="margin-top: 15px;">
+            <strong>📝 Examples needing conversion:</strong>
+            <div class="examples-list">
+              ${encoding.filesToConvert.slice(0, 10).map(f => `
+                <div class="example-item">
+                  <span class="original">${escapeHtml(f.original)}</span><br>
+                  → <span class="fixed">${escapeHtml(f.fixed)}</span>
+                </div>
+              `).join('')}
+              ${encoding.filesToConvert.length > 10 ? `<div style="padding: 5px; color: #666;">... and ${encoding.filesToConvert.length - 10} more</div>` : ''}
+            </div>
+          </div>
+        `;
+      }
+
+      encodingDiv.innerHTML = `
+        <div class="status-header">
+          <span class="status-icon">📊</span>
+          <span>Encoding Health</span>
+          <span class="badge" style="background-color: ${healthColor}; color: white;">
+            ${encoding.summary.healthPercent}%
+          </span>
+        </div>
+
+        <div class="health-bar">
+          <div class="health-fill" style="width: ${encoding.summary.healthPercent}%;"></div>
+        </div>
+
+        <div class="encoding-stats">
+          <div class="encoding-stat">
+            <div class="encoding-stat-value">${encoding.summary.totalFiles.toLocaleString()}</div>
+            <div class="encoding-stat-label">Total Files</div>
+          </div>
+          <div class="encoding-stat">
+            <div class="encoding-stat-value">${encoding.summary.badUfffd}</div>
+            <div class="encoding-stat-label">U+FFFD</div>
+          </div>
+          <div class="encoding-stat">
+            <div class="encoding-stat-value">${encoding.summary.badC1Control}</div>
+            <div class="encoding-stat-label">C1 Control</div>
+          </div>
+          <div class="encoding-stat">
+            <div class="encoding-stat-value">${encoding.summary.mojibakeDetected}</div>
+            <div class="encoding-stat-label">Mojibake</div>
+          </div>
+          <div class="encoding-stat">
+            <div class="encoding-stat-value">${encoding.summary.needsConversion}</div>
+            <div class="encoding-stat-label">Needs Fix</div>
+          </div>
+        </div>
+
+        ${examplesHtml}
+
+        ${encoding.summary.needsConversion > 0 ? `
+          <div style="margin-top: 15px; padding: 10px; background-color: #fff3e0; border-radius: 4px;">
+            <strong>💡 Fix:</strong> Run <code>npm run convert:encoding</code> to automatically fix encoding issues.
+          </div>
+        ` : ''}
+      `;
+    }
+
+    // Helper to escape HTML
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     // Load status when opening the page
