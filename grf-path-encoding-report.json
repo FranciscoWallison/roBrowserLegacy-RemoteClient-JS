@@ -1,0 +1,31 @@
+{
+  "scannedAt": "2026-01-04T19:33:57.681Z",
+  "resourcesDir": "D:\\projeto_Meus\\roBrowserLegacy-RemoteClient-JS\\resources",
+  "discoveryMode": "DATA.INI",
+  "summary": {
+    "total": 1,
+    "utf8": 0,
+    "iso_8859_1": 1,
+    "unknown": 0
+  },
+  "files": [
+    {
+      "file": "data.grf",
+      "exists": true,
+      "ok": true,
+      "version": "0x200",
+      "encoding": "iso-8859-1",
+      "layout": "offset32",
+      "totalFiles": 203092,
+      "invalidUtf8Count": 178085,
+      "invalidSamples": [
+        "data\\sprite\\·Îºê\\c_j_umbrella\\³²\\Å¸Á¶Å©¶ó¿î_³².spr",
+        "data\\texture\\À¯ÀúÀÎÅÍÆäÀÌ½º\\illust\\reno_swd_03.bmp",
+        "data\\sprite\\·Îºê\\c_big_lollipop\\¿©\\»çÀÚ·Îµå³ªÀÌÆ®_¿©.act",
+        "data\\sprite\\·Îºê\\c_big_lollipop\\¿©\\»çÀÚ·Îµå³ªÀÌÆ®_¿©.spr",
+        "data\\texture\\³»ºÎ¼ÒÇ°\\sk-1 copy.bmp"
+      ],
+      "reason": "Invalid UTF-8 sequences detected in filenames (non-UTF-8)"
+    }
+  ]
+}

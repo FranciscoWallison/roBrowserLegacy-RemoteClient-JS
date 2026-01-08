@@ -1,6 +1,8 @@
 const fs = require("fs");
 const path = require("path");
 const { execSync } = require("child_process");
+const zlib = require("zlib");
+const { TextDecoder } = require("util");
 
 /**
  * Startup validation system
@@ -35,9 +37,7 @@ class StartupValidator {
   validateNodeVersion() {
     try {
       const nodeVersion = process.version;
-      const npmVersion = execSync("npm --version", {
-        encoding: "utf-8",
-      }).trim();
+      const npmVersion = execSync("npm --version", { encoding: "utf-8" }).trim();
 
       this.validationResults.nodeVersion = {
         node: nodeVersion,
@@ -48,23 +48,15 @@ class StartupValidator {
       this.addInfo(`Node.js: ${nodeVersion}`);
       this.addInfo(`npm: ${npmVersion}`);
 
-      const majorVersion = parseInt(
-        nodeVersion.replace("v", "").split(".")[0],
-        10
-      );
+      const majorVersion = parseInt(nodeVersion.replace("v", "").split(".")[0], 10);
       if (majorVersion < 14) {
-        this.addWarning(
-          `Node.js version ${nodeVersion} may be too old. Recommended: v14 or newer`
-        );
+        this.addWarning(`Node.js version ${nodeVersion} may be too old. Recommended: v14 or newer`);
       }
 
       return true;
     } catch (error) {
       this.addError(`Failed to check Node.js/npm version: ${error.message}`);
-      this.validationResults.nodeVersion = {
-        valid: false,
-        error: error.message,
-      };
+      this.validationResults.nodeVersion = { valid: false, error: error.message };
       return false;
     }
   }
@@ -75,42 +67,28 @@ class StartupValidator {
 
     if (!fs.existsSync(packageJsonPath)) {
       this.addError("package.json not found!");
-      this.validationResults.dependencies = {
-        installed: false,
-        reason: "package.json missing",
-      };
+      this.validationResults.dependencies = { installed: false, reason: "package.json missing" };
       return false;
     }
 
     if (!fs.existsSync(nodeModulesPath)) {
       const nodeVersion = this.validationResults.nodeVersion;
-      const versionInfo = nodeVersion
-        ? `\n  Node.js: ${nodeVersion.node}\n  npm: ${nodeVersion.npm}`
-        : "";
-
+      const versionInfo = nodeVersion ? `\n  Node.js: ${nodeVersion.node}\n  npm: ${nodeVersion.npm}` : "";
       this.addError(`Dependencies not installed!\nRun: npm install${versionInfo}`);
-      this.validationResults.dependencies = {
-        installed: false,
-        reason: "node_modules missing",
-      };
+      this.validationResults.dependencies = { installed: false, reason: "node_modules missing" };
       return false;
     }
 
-    // Check essential dependencies
     const requiredDeps = ["express", "cors", "@chicowall/grf-loader"];
     const missingDeps = [];
 
     for (const dep of requiredDeps) {
       const depPath = path.join(nodeModulesPath, dep);
-      if (!fs.existsSync(depPath)) {
-        missingDeps.push(dep);
-      }
+      if (!fs.existsSync(depPath)) missingDeps.push(dep);
     }
 
     if (missingDeps.length > 0) {
-      this.addError(
-        `Missing essential dependencies: ${missingDeps.join(", ")}\nRun: npm install`
-      );
+      this.addError(`Missing essential dependencies: ${missingDeps.join(", ")}\nRun: npm install`);
       this.validationResults.dependencies = { installed: false, missingDeps };
       return false;
     }
@@ -121,7 +99,8 @@ class StartupValidator {
   }
 
   /**
-   * Validate GRF files (version 0x200 with no DES encryption)
+   * Validate GRF files (0x200 / 0x300) and validate compacted (zlib) file table.
+   * Also diagnoses non-UTF-8 filenames (for path encoding conversion/fallback).
    */
   async validateGrfs() {
     const resourcesPath = path.join(process.cwd(), "resources");
@@ -129,10 +108,7 @@ class StartupValidator {
 
     if (!fs.existsSync(dataIniPath)) {
       this.addError("resources/DATA.INI not found!");
-      this.validationResults.grfs = {
-        valid: false,
-        reason: "DATA.INI missing",
-      };
+      this.validationResults.grfs = { valid: false, reason: "DATA.INI missing" };
       return false;
     }
 
@@ -141,10 +117,7 @@ class StartupValidator {
 
     if (grfFiles.length === 0) {
       this.addError("No GRF files found in resources/DATA.INI!");
-      this.validationResults.grfs = {
-        valid: false,
-        reason: "No GRF files in DATA.INI",
-      };
+      this.validationResults.grfs = { valid: false, reason: "No GRF files in DATA.INI" };
       return false;
     }
 
@@ -162,20 +135,21 @@ class StartupValidator {
       }
 
       const validation = await this.validateGrfFormat(grfPath);
+
       grfResults.push({ file: grfFile, exists: true, ...validation });
 
       if (!validation.valid) {
         let errorMsg = `Incompatible GRF: ${grfFile}\n`;
 
-        if (
-          validation.version &&
-          validation.version !== "0x200" &&
-          validation.version !== "unknown"
-        ) {
-          errorMsg += `  ❌ Version: ${validation.version} (expected: 0x200)\n`;
+        if (validation.version && validation.version !== "unknown") {
+          errorMsg += `  ❌ Version: ${validation.version} (expected: 0x200 or 0x300)\n`;
         }
 
         errorMsg += `  ❌ ${validation.reason}\n`;
+
+        if (validation.fileTable?.ok === false) {
+          errorMsg += `  ❌ FileTable(zlib) failed: ${validation.fileTable.reason}\n`;
+        }
 
         errorMsg += `\n  📦 FIX: Repack with GRF Builder:\n`;
         errorMsg += `  1. Download GRF Builder: https://github.com/Tokeiburu/GRFEditor\n`;
@@ -187,9 +161,17 @@ class StartupValidator {
         this.addError(errorMsg);
         hasInvalidGrf = true;
       } else {
-        this.addInfo(
-          `Valid GRF: ${grfFile} (version 0x200, compatible with the library)`
-        );
+        this.addInfo(`Valid GRF: ${grfFile} (version ${validation.version})`);
+
+        // Path encoding diagnosis
+        if (validation.pathEncoding?.encoding === "iso-8859-1") {
+          const samples = validation.pathEncoding.invalidUtf8Samples?.length
+            ? ` Examples: ${validation.pathEncoding.invalidUtf8Samples.join(" | ")}`
+            : "";
+          this.addWarning(
+            `GRF path encoding: ${grfFile} has non-UTF-8 filenames. Recommend legacy encoding fallback.${samples}`
+          );
+        }
       }
     }
 
@@ -234,57 +216,332 @@ class StartupValidator {
     return grfFiles;
   }
 
+  // -------------------- GRF helpers (0x200/0x300 + compacted/zlib) --------------------
+
+  _trimNullTerminatedAscii(buf) {
+    const idx = buf.indexOf(0x00);
+    const slice = idx >= 0 ? buf.subarray(0, idx) : buf;
+    return slice.toString("ascii");
+  }
+
+  _safeRead(fd, size, position) {
+    const b = Buffer.alloc(size);
+    const n = fs.readSync(fd, b, 0, size, position);
+    return n === size ? b : b.subarray(0, n);
+  }
+
+  _readGrfHeader46(fd) {
+    const header = this._safeRead(fd, 46, 0);
+    if (header.length < 46) {
+      return { ok: false, reason: "Header too small (<46 bytes)" };
+    }
+
+    const signature = this._trimNullTerminatedAscii(header.subarray(0, 16));
+    if (signature !== "Master of Magic") {
+      return { ok: false, reason: `Invalid signature: "${signature}"` };
+    }
+
+    const tableOffset = header.readUInt32LE(30) >>> 0;
+    const seed = header.readUInt32LE(34) >>> 0;
+    const nFiles = header.readUInt32LE(38) >>> 0;
+    const version = header.readUInt32LE(42) >>> 0;
+
+    const fileCount = Math.max(nFiles - seed - 7, 0);
+
+    return {
+      ok: true,
+      tableOffset,
+      seed,
+      nFiles,
+      fileCount,
+      version,
+      versionHex: "0x" + version.toString(16).toUpperCase(),
+    };
+  }
+
+  _inflateFileTable(fd, fileTablePos) {
+    const tableHeader = this._safeRead(fd, 8, fileTablePos);
+    if (tableHeader.length < 8) {
+      return { ok: false, reason: "File table header too small (<8 bytes)" };
+    }
+
+    const compressedSize = tableHeader.readUInt32LE(0) >>> 0;
+    const uncompressedSize = tableHeader.readUInt32LE(4) >>> 0;
+
+    if (!compressedSize || !uncompressedSize) {
+      return { ok: false, reason: "Invalid file table sizes (0)" };
+    }
+
+    // guardrail
+    const MAX_UNCOMPRESSED = 512 * 1024 * 1024; // 512MB
+    if (uncompressedSize > MAX_UNCOMPRESSED) {
+      return { ok: false, reason: `Uncompressed file table too large (${uncompressedSize} bytes)` };
+    }
+
+    const compressed = this._safeRead(fd, compressedSize, fileTablePos + 8);
+    if (compressed.length !== compressedSize) {
+      return { ok: false, reason: "Failed reading compressed file table bytes" };
+    }
+
+    try {
+      const data = zlib.inflateSync(compressed); // zlib stream
+      return { ok: true, compressedSize, uncompressedSize, data };
+    } catch (e) {
+      return { ok: false, reason: `zlib inflate failed: ${e.message}` };
+    }
+  }
+
+  _scanFileTableNames(tableBuf, fileCount, offsetSize, fileSize, scanLimit) {
+    const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+    const metaLen = 4 + 4 + 4 + 1 + offsetSize;
+    const maxI = scanLimit > 0 ? Math.min(fileCount, scanLimit) : fileCount;
+
+    let p = 0;
+    let inspected = 0;
+    let invalidUtf8Count = 0;
+    const invalidUtf8Samples = [];
+    let parseErrors = 0;
+    let offsetOutOfRange = 0;
+
+    const isUtf8 = (bytes) => {
+      // fast ASCII
+      let hasHigh = false;
+      for (let i = 0; i < bytes.length; i += 1) {
+        if (bytes[i] >= 0x80) {
+          hasHigh = true;
+          break;
+        }
+      }
+      if (!hasHigh) return true;
+      try {
+        utf8Decoder.decode(bytes);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+
+    const decodeLatin1 = (bytes) => {
+      try {
+        return new TextDecoder("latin1").decode(bytes);
+      } catch {
+        return Buffer.from(bytes).toString("latin1");
+      }
+    };
+
+    for (let i = 0; i < maxI; i += 1) {
+      if (p >= tableBuf.length) {
+        parseErrors += 1;
+        break;
+      }
+
+      // filename (null terminated)
+      let end = p;
+      while (end < tableBuf.length && tableBuf[end] !== 0x00) end += 1;
+
+      if (end >= tableBuf.length) {
+        parseErrors += 1;
+        break;
+      }
+
+      const nameBytes = tableBuf.subarray(p, end);
+      p = end + 1;
+
+      if (p + metaLen > tableBuf.length) {
+        parseErrors += 1;
+        break;
+      }
+
+      // compSize(4) compAligned(4) realSize(4) flags(1) offset(4/8)
+      const compAligned = tableBuf.readUInt32LE(p + 4) >>> 0;
+      const flags = tableBuf[p + 12];
+
+      let offsetVal = 0;
+      if (offsetSize === 4) {
+        offsetVal = tableBuf.readUInt32LE(p + 13) >>> 0;
+      } else {
+        // BigInt -> number (best effort)
+        try {
+          const o = tableBuf.readBigUInt64LE(p + 13);
+          offsetVal = o <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(o) : Number.MAX_SAFE_INTEGER;
+        } catch {
+          offsetVal = Number.MAX_SAFE_INTEGER;
+        }
+      }
+
+      p += metaLen;
+
+      // only real files
+      if (!(flags & 0x01)) continue;
+
+      inspected += 1;
+
+      // basic plausibility check (helps choose correct 0x300 layout)
+      if (fileSize > 0) {
+        if (offsetVal < 0 || offsetVal >= fileSize) offsetOutOfRange += 1;
+        else if (offsetVal + compAligned > fileSize) offsetOutOfRange += 1;
+      }
+
+      if (!isUtf8(nameBytes)) {
+        invalidUtf8Count += 1;
+        if (invalidUtf8Samples.length < 5) invalidUtf8Samples.push(decodeLatin1(nameBytes));
+      }
+    }
+
+    return {
+      inspected,
+      invalidUtf8Count,
+      invalidUtf8Samples,
+      parseErrors,
+      offsetOutOfRange,
+    };
+  }
+
+  _analyzeGrfPathEncoding(fd, headerInfo, fileSize) {
+    const scanLimitEnv = process.env.GRF_PATH_SCAN_LIMIT;
+    const scanLimit =
+      scanLimitEnv && /^\d+$/.test(scanLimitEnv) ? parseInt(scanLimitEnv, 10) : 0; // 0 = full
+
+    const fileTablePos = headerInfo.tableOffset + 46; // correct per spec
+    const table = this._inflateFileTable(fd, fileTablePos);
+    if (!table.ok) {
+      return {
+        ok: false,
+        encoding: "unknown",
+        reason: table.reason,
+      };
+    }
+
+    // 0x200: offset32
+    // 0x300: try offset32 and offset64, pick best fit
+    const scans = [];
+
+    scans.push({
+      layout: "offset32",
+      offsetSize: 4,
+      ...this._scanFileTableNames(table.data, headerInfo.fileCount, 4, fileSize, scanLimit),
+    });
+
+    if (headerInfo.version === 0x300) {
+      scans.push({
+        layout: "offset64",
+        offsetSize: 8,
+        ...this._scanFileTableNames(table.data, headerInfo.fileCount, 8, fileSize, scanLimit),
+      });
+    }
+
+    // pick best:
+    // 1) more inspected
+    // 2) fewer parseErrors
+    // 3) fewer offsetOutOfRange (helps for 0x300)
+    scans.sort((a, b) => {
+      if (b.inspected !== a.inspected) return b.inspected - a.inspected;
+      if (a.parseErrors !== b.parseErrors) return a.parseErrors - b.parseErrors;
+      return a.offsetOutOfRange - b.offsetOutOfRange;
+    });
+
+    const best = scans[0];
+
+    if (!best || best.inspected === 0) {
+      return {
+        ok: true,
+        encoding: "unknown",
+        reason: "No file entries inspected (table parse mismatch or empty GRF)",
+        table: {
+          compressedSize: table.compressedSize,
+          uncompressedSize: table.uncompressedSize,
+        },
+        layoutTried: scans.map((s) => s.layout),
+      };
+    }
+
+    return {
+      ok: true,
+      encoding: best.invalidUtf8Count > 0 ? "iso-8859-1" : "utf-8", // meaning: non-UTF-8 vs UTF-8
+      layout: best.layout,
+      totalFilesInspected: best.inspected,
+      invalidUtf8Count: best.invalidUtf8Count,
+      invalidUtf8Samples: best.invalidUtf8Samples,
+      parseErrors: best.parseErrors,
+      offsetOutOfRange: best.offsetOutOfRange,
+      table: {
+        compressedSize: table.compressedSize,
+        uncompressedSize: table.uncompressedSize,
+      },
+      note:
+        best.invalidUtf8Count > 0
+          ? "Detected non-UTF-8 filename bytes (legacy encoding)."
+          : "All inspected filenames are valid UTF-8.",
+    };
+  }
+
   /**
    * Validate GRF file format
-   * Tests whether @chicowall/grf-loader can actually load the GRF
+   * - Accepts 0x200 and 0x300
+   * - Validates compacted file table (zlib) + parses entries (offset32/offset64)
+   * - Then tries to load with @chicowall/grf-loader (real compatibility test)
    */
   async validateGrfFormat(grfPath) {
     const { GrfNode } = require("@chicowall/grf-loader");
 
     let fd = null;
+    let testFd = null;
 
     try {
-      // Open file
       fd = fs.openSync(grfPath, "r");
+      const stat = fs.fstatSync(fd);
+      const fileSize = typeof stat.size === "number" ? stat.size : 0;
 
-      // Read header to check version
-      const buffer = Buffer.alloc(46);
-      fs.readSync(fd, buffer, 0, 46, 0);
-
-      // Magic bytes
-      const magic = buffer.toString("ascii", 0, 15);
-
-      if (magic !== "Master of Magic") {
-        if (fd) fs.closeSync(fd);
+      const headerInfo = this._readGrfHeader46(fd);
+      if (!headerInfo.ok) {
         return {
           valid: false,
           version: "unknown",
           compatible: false,
-          reason: "Invalid magic bytes - not a valid GRF file",
+          reason: headerInfo.reason,
+          fileTable: { ok: false, reason: "Skipped (invalid header)" },
+          pathEncoding: { ok: false, encoding: "unknown", reason: "Skipped (invalid header)" },
         };
       }
 
-      // Version
-      const version = buffer.readUInt32LE(42);
-      const versionHex = "0x" + version.toString(16).toUpperCase();
-
-      // Check version
-      if (version !== 0x200) {
-        if (fd) fs.closeSync(fd);
+      // version support for compacted validation
+      if (headerInfo.version !== 0x200 && headerInfo.version !== 0x300) {
         return {
           valid: false,
-          version: versionHex,
+          version: headerInfo.versionHex,
           compatible: false,
-          reason: `Version ${versionHex} is not supported (expected: 0x200)`,
+          reason: `Version ${headerInfo.versionHex} is not supported (expected: 0x200 or 0x300)`,
+          fileTable: { ok: false, reason: "Skipped (unsupported version)" },
+          pathEncoding: { ok: false, encoding: "unknown", reason: "Skipped (unsupported version)" },
         };
       }
 
-      // REAL TEST: try to load using the library
-      const testFd = fs.openSync(grfPath, "r");
+      // Validate compacted file table + path encoding in one go
+      const pathEncoding = this._analyzeGrfPathEncoding(fd, headerInfo, fileSize);
+
+      const fileTableOk = pathEncoding.ok === true;
+      const fileTable = fileTableOk
+        ? { ok: true, layout: pathEncoding.layout, ...pathEncoding.table }
+        : { ok: false, reason: pathEncoding.reason };
+
+      if (!fileTableOk) {
+        // If we can't inflate/parse the file table, it's not usable.
+        return {
+          valid: false,
+          version: headerInfo.versionHex,
+          compatible: false,
+          reason: "Failed to read/parse compacted file table",
+          fileTable,
+          pathEncoding,
+        };
+      }
+
+      // REAL TEST: try to load using the library (compatibility with runtime)
+      testFd = fs.openSync(grfPath, "r");
       const grf = new GrfNode(testFd);
 
       try {
-        // Try loading (10s timeout)
         const loadPromise = grf.load();
         const timeoutPromise = new Promise((_, reject) =>
           setTimeout(() => reject(new Error("GRF load timeout")), 10000)
@@ -292,33 +549,53 @@ class StartupValidator {
 
         await Promise.race([loadPromise, timeoutPromise]);
 
-        // If we got here, the GRF is compatible
         fs.closeSync(testFd);
-        if (fd) fs.closeSync(fd);
+        testFd = null;
+
+        fs.closeSync(fd);
+        fd = null;
 
         return {
           valid: true,
-          version: versionHex,
+          version: headerInfo.versionHex,
           compatible: true,
           reason: "GRF loaded successfully by the library",
+          fileTable,
+          pathEncoding,
         };
       } catch (loadError) {
-        // Failed to load - incompatible
-        fs.closeSync(testFd);
-        if (fd) fs.closeSync(fd);
+        if (testFd) {
+          try {
+            fs.closeSync(testFd);
+          } catch {}
+          testFd = null;
+        }
+        if (fd) {
+          try {
+            fs.closeSync(fd);
+          } catch {}
+          fd = null;
+        }
 
         return {
           valid: false,
-          version: versionHex,
+          version: headerInfo.versionHex,
           compatible: false,
           reason: `Library failed to load: ${loadError.message}`,
+          fileTable,
+          pathEncoding,
         };
       }
     } catch (error) {
+      if (testFd) {
+        try {
+          fs.closeSync(testFd);
+        } catch {}
+      }
       if (fd) {
         try {
           fs.closeSync(fd);
-        } catch (e) {}
+        } catch {}
       }
 
       return {
@@ -326,6 +603,8 @@ class StartupValidator {
         version: "error",
         compatible: false,
         reason: `Failed to validate GRF: ${error.message}`,
+        fileTable: { ok: false, reason: "Exception" },
+        pathEncoding: { ok: false, encoding: "unknown", reason: "Exception" },
       };
     }
   }
@@ -398,7 +677,7 @@ class StartupValidator {
     }
 
     if (!envVars.CLIENT_PUBLIC_URL.value) {
-      this.addError('CLIENT_PUBLIC_URL not set! Configure it in the .env file');
+      this.addError("CLIENT_PUBLIC_URL not set! Configure it in the .env file");
       hasErrors = true;
       results.CLIENT_PUBLIC_URL = { defined: false, error: "Variable not set" };
     } else {
@@ -422,9 +701,7 @@ class StartupValidator {
 
     if (nodeEnv === "production") {
       const configs = require("../config/configs");
-      if (configs.DEBUG) {
-        this.addWarning("DEBUG is enabled in PRODUCTION!");
-      }
+      if (configs.DEBUG) this.addWarning("DEBUG is enabled in PRODUCTION!");
     }
 
     if (!envVars.NODE_ENV.value) {
@@ -469,9 +746,7 @@ class StartupValidator {
   }
 
   _printMultiline(prefix, text) {
-    for (const line of String(text).split("\n")) {
-      console.log(prefix + line);
-    }
+    for (const line of String(text).split("\n")) console.log(prefix + line);
   }
 
   printReport(results = null) {
@@ -502,9 +777,7 @@ class StartupValidator {
     console.log("=".repeat(80));
     if (results.success) {
       console.log("✅ Validation completed successfully!");
-      if (results.warnings.length > 0) {
-        console.log(`⚠️  ${results.warnings.length} warning(s) found`);
-      }
+      if (results.warnings.length > 0) console.log(`⚠️  ${results.warnings.length} warning(s) found`);
     } else {
       console.log("❌ Validation failed!");
       console.log(`   ${results.errors.length} error(s) found`);

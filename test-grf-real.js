@@ -1,18 +1,125 @@
 #!/usr/bin/env node
 
 /**
- * REAL GRF reading test
- * Tests whether the @chicowall/grf-loader library can read the GRF
+ * REAL GRF reading test (fixed)
+ *
+ * What this fixes/improves:
+ *  - Normalizes paths for lookups (slash/backslash + case)
+ *  - Shows extension/type stats (so you can verify "missing types" quickly)
+ *  - Probes extraction across common file types if present
+ *  - Warns about suspicious filename decoding (U+FFFD "�") and key collisions
+ *
+ * Usage:
+ *   node test-grf-real.fixed.js <path-to-file.grf>
+ *   node test-grf-real.fixed.js              # auto-tests resources/*.grf
  */
 
 const fs = require("fs");
 const path = require("path");
 const { GrfNode } = require("@chicowall/grf-loader");
 
-async function testGrf(grfPath) {
+// Common RO file types to probe (adjust if you want)
+const PROBE_EXTS = [
+  "spr",
+  "act",
+  "bmp",
+  "tga",
+  "pal",
+  "wav",
+  "mp3",
+  "gat",
+  "rsw",
+  "gnd",
+  "str",
+  "lub",
+  "lua",
+  "xml",
+  "txt",
+];
+
+// ---------- helpers ----------
+
+function norm(p) {
+  // Normalize path separators + case, and keep Unicode stable
+  return String(p)
+    .replace(/[\\/]+/g, "/")
+    .toLowerCase()
+    .normalize("NFC");
+}
+
+function extOf(p) {
+  const s = String(p).replace(/[\\\/]+/g, "/");
+  const base = s.slice(s.lastIndexOf("/") + 1);
+  const idx = base.lastIndexOf(".");
+  return idx >= 0 ? base.slice(idx + 1).toLowerCase() : "";
+}
+
+function topNFromMapCount(map, n) {
+  return Array.from(map.entries())
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, n);
+}
+
+function sampleUnique(arr, k) {
+  if (arr.length <= k) return arr.slice();
+  const out = [];
+  const used = new Set();
+  while (out.length < k) {
+    const i = Math.floor(Math.random() * arr.length);
+    if (used.has(i)) continue;
+    used.add(i);
+    out.push(arr[i]);
+  }
+  return out;
+}
+
+async function extractAndReport(grf, fileKey) {
+  const { data, error } = await grf.getFile(fileKey);
+  if (error) return { ok: false, error: String(error) };
+  return { ok: true, bytes: data?.length ?? 0 };
+}
+
+/**
+ * Builds a normalized lookup map:
+ *   normKey -> rawKey
+ *
+ * Also detects collisions (different raw keys that normalize to same normKey),
+ * which can happen with case-only differences or bad charset decoding.
+ */
+function buildNormalizedIndex(files) {
+  const idx = new Map();
+  const collisions = [];
+  for (const raw of files) {
+    const k = norm(raw);
+    const prev = idx.get(k);
+    if (prev && prev !== raw) {
+      collisions.push({ norm: k, a: prev, b: raw });
+      // Keep the first one to avoid thrashing; collisions are reported.
+      continue;
+    }
+    idx.set(k, raw);
+  }
+  return { idx, collisions };
+}
+
+/**
+ * Attempts to find a file key in GRF regardless of slash/backslash/case.
+ */
+function findKey(normIndex, query) {
+  const k = norm(query);
+  return normIndex.get(k) || null;
+}
+
+function printDivider() {
   console.log("\n" + "═".repeat(80));
-  console.log(`🧪 REAL READ TEST: ${path.basename(grfPath)}`);
-  console.log("═".repeat(80) + "\n");
+}
+
+// ---------- main test ----------
+
+async function testGrf(grfPath) {
+  printDivider();
+  console.log(`🧪 REAL READ TEST (fixed): ${path.basename(grfPath)}`);
+  printDivider();
 
   if (!fs.existsSync(grfPath)) {
     console.error("❌ File not found:", grfPath);
@@ -33,7 +140,6 @@ async function testGrf(grfPath) {
     console.log(
       `   📏 Size: ${(stats.size / 1024 / 1024).toFixed(2)} MB (${stats.size} bytes)`
     );
-
     stepCompleted = 1;
 
     // STEP 2: Read header
@@ -41,7 +147,8 @@ async function testGrf(grfPath) {
     const headerBuffer = Buffer.alloc(46);
     fs.readSync(fd, headerBuffer, 0, 46, 0);
 
-    const magic = headerBuffer.toString("ascii", 0, 15);
+    const magicRaw = headerBuffer.toString("ascii", 0, 15);
+    const magic = magicRaw.replace(/\0+$/g, ""); // trim trailing NULs
     const version = headerBuffer.readUInt32LE(42);
     const versionHex = "0x" + version.toString(16).toUpperCase();
 
@@ -57,9 +164,9 @@ async function testGrf(grfPath) {
 
     stepCompleted = 3;
 
-    // STEP 4: Load GRF (THIS MAY FAIL WITH DES)
-    console.log("\n4️⃣  Trying to load/decompress GRF contents...");
-    console.log("   ⏳ Please wait, this may take a few seconds...");
+    // STEP 4: Load GRF
+    console.log("\n4️⃣  Loading/decompressing GRF contents...");
+    console.log("   ⏳ Please wait...");
 
     const startTime = Date.now();
     await grf.load();
@@ -75,150 +182,195 @@ async function testGrf(grfPath) {
 
     console.log(`   ✅ Total files: ${fileCount}`);
 
-    // Show some example files
-    if (fileCount > 0) {
-      console.log("\n   📄 First 10 files:");
-      files.slice(0, 10).forEach((file, i) => {
-        console.log(`      ${i + 1}. ${file}`);
-      });
-
-      if (fileCount > 10) {
-        console.log(`      ... and ${fileCount - 10} more files`);
-      }
-
-      // Test extracting one file
-      console.log("\n6️⃣  Testing file extraction...");
-      const testFile = files[0];
-
-      console.log(`   📝 Trying to extract: ${testFile}`);
-
-      const { data, error } = await grf.getFile(testFile);
-
-      if (error) {
-        console.log(`   ⚠️  Extraction error: ${error}`);
-      } else {
-        console.log(`   ✅ File extracted successfully (${data.length} bytes)`);
-      }
+    if (fileCount === 0) {
+      console.log("   ⚠️  No files found in GRF (unexpected).");
+      return false;
     }
 
-    if (fd !== null) {
-      fs.closeSync(fd);
+    console.log("\n   📄 First 10 files:");
+    files.slice(0, 10).forEach((file, i) => console.log(`      ${i + 1}. ${file}`));
+    if (fileCount > 10) console.log(`      ... and ${fileCount - 10} more files`);
+
+    // Step 5b: Extension stats (this catches the “missing file types” issue)
+    console.log("\n   🧾 Extension stats (top 20):");
+    const extCount = new Map();
+    for (const f of files) {
+      const e = extOf(f);
+      extCount.set(e, (extCount.get(e) || 0) + 1);
+    }
+    const top20 = topNFromMapCount(extCount, 20);
+    for (const [e, c] of top20) {
+      console.log(`      ${String(e || "(no ext)").padEnd(12)} ${c}`);
     }
 
-    console.log("\n" + "═".repeat(80));
-    console.log("🎉 CONCLUSION: GRF IS FULLY COMPATIBLE!");
-    console.log("═".repeat(80));
+    // Step 5c: Detect suspicious filename decoding and collisions
+    const replacementChar = "\uFFFD"; // "�"
+    const badNameCount = files.reduce(
+      (acc, f) => acc + (String(f).includes(replacementChar) ? 1 : 0),
+      0
+    );
 
-    console.log("\n✅ Your GRF works perfectly with the library!");
-    console.log("✅ No repack needed!");
-    console.log("\n💡 The validator should be adjusted to accept this kind of GRF.\n");
+    const { idx: normIndex, collisions } = buildNormalizedIndex(files);
+
+    if (badNameCount > 0) {
+      console.log(
+        `\n   ⚠️  Warning: ${badNameCount} filename(s) contain "�" (U+FFFD).`
+      );
+      console.log(
+        "      This usually means the filename charset was decoded wrong (common with KR GRFs)."
+      );
+      console.log(
+        "      Lookups by name may fail or collide unless the loader decodes CP949/EUC-KR correctly."
+      );
+    }
+
+    if (collisions.length > 0) {
+      console.log(`\n   ⚠️  Warning: ${collisions.length} normalized-key collision(s) detected.`);
+      console.log("      Example collision:");
+      const ex = collisions[0];
+      console.log(`      norm: ${ex.norm}`);
+      console.log(`      a   : ${ex.a}`);
+      console.log(`      b   : ${ex.b}`);
+    }
+
+    // STEP 6: Extraction probes
+    console.log("\n6️⃣  Testing extraction (robust lookups + type probes)...");
+
+    // 6a) Always try extracting the first file using exact key
+    const firstFile = files[0];
+    console.log(`   🧪 Extract (exact): ${firstFile}`);
+    {
+      const r = await extractAndReport(grf, firstFile);
+      if (!r.ok) console.log(`      ❌ ${r.error}`);
+      else console.log(`      ✅ ${r.bytes} bytes`);
+    }
+
+    // 6b) Try extracting same file via normalized variants
+    const variants = [
+      firstFile,
+      firstFile.replace(/[\\]+/g, "/"),
+      firstFile.replace(/[\/]+/g, "\\"),
+      firstFile.toLowerCase(),
+      firstFile.toUpperCase(),
+    ];
+
+    console.log("   🔁 Lookup variants (slash/backslash/case):");
+    for (const q of variants) {
+      const resolved = findKey(normIndex, q);
+      if (!resolved) {
+        console.log(`      ❌ Not found: ${q}`);
+        continue;
+      }
+      const r = await extractAndReport(grf, resolved);
+      if (!r.ok) console.log(`      ❌ ${q} -> ${resolved} : ${r.error}`);
+      else console.log(`      ✅ ${q} -> ${resolved} : ${r.bytes} bytes`);
+    }
+
+    // 6c) Probe by extension: pick first match for each ext if present
+    console.log("\n   🧪 Type probes (first match per ext if present):");
+    let probeHits = 0;
+    for (const ext of PROBE_EXTS) {
+      // Find a file with that extension
+      const match = files.find((f) => extOf(f) === ext);
+      if (!match) continue;
+
+      probeHits++;
+      const r = await extractAndReport(grf, match);
+      if (!r.ok) console.log(`      ❌ .${ext}  ${match} : ${r.error}`);
+      else console.log(`      ✅ .${ext}  ${match} : ${r.bytes} bytes`);
+    }
+    if (probeHits === 0) {
+      console.log("      (No files matched the probe extensions in this GRF.)");
+    }
+
+    // 6d) Random sample extraction
+    console.log("\n   🎲 Random sample extraction (3 files):");
+    for (const key of sampleUnique(files, 3)) {
+      const r = await extractAndReport(grf, key);
+      if (!r.ok) console.log(`      ❌ ${key} : ${r.error}`);
+      else console.log(`      ✅ ${key} : ${r.bytes} bytes`);
+    }
+
+    printDivider();
+    console.log("🎉 CONCLUSION: GRF IS READABLE WITH THIS LOADER.");
+    if (badNameCount > 0) {
+      console.log("⚠️  BUT: Filename charset decode looks wrong (see warning above).");
+      console.log("   If your validator 'can't find' some files, it's probably lookup/encoding.");
+    } else if (collisions.length > 0) {
+      console.log("⚠️  BUT: Normalized-key collisions exist. Your validator should handle duplicates.");
+    } else {
+      console.log("✅ Lookups should be stable if you normalize paths (slash + case).");
+    }
+    printDivider();
 
     return true;
   } catch (error) {
     console.error("\n❌ ERROR while loading GRF!");
     console.error("─".repeat(80));
 
-    // Identify WHERE it failed
     console.error("\n📍 FAILURE POINT:");
-
     if (stepCompleted === 0) {
       console.error("   Failed at: Opening the GRF file");
-      console.error("   Possible cause: File does not exist or no read permissions");
     } else if (stepCompleted === 1) {
       console.error("   Failed at: Reading GRF header");
-      console.error("   Possible cause: Corrupted file or not a valid GRF");
     } else if (stepCompleted === 2) {
       console.error("   Failed at: Initializing library");
-      console.error("   Possible cause: Issue with @chicowall/grf-loader");
     } else if (stepCompleted === 3) {
       console.error("   Failed at: Loading/decompressing GRF contents");
-      console.error("   Possible cause: Incompatible DES encryption or corrupted file");
-
-      console.error("\n   ⚠️  THIS IS THE MOST COMMON PROBLEM WITH DES!");
-      console.error("   The library cannot decrypt GRFs with DES.");
+      console.error("   Possible cause: DES encryption not supported by loader or corrupted GRF");
     } else if (stepCompleted === 4) {
-      console.error("   Failed at: Listing files");
-      console.error("   Possible cause: Incompatible internal GRF structure");
+      console.error("   Failed at: Listing files / extracting");
     }
 
     console.error("\n📋 ERROR DETAILS:");
     console.error(`   Type: ${error.name}`);
     console.error(`   Message: ${error.message}`);
-    if (error.code) {
-      console.error(`   Code: ${error.code}`);
-    }
+    if (error.code) console.error(`   Code: ${error.code}`);
 
-    // Analyze error message for more specific diagnosis
     const errorMsg = String(error.message || "").toLowerCase();
-
     console.error("\n🔍 DIAGNOSIS:");
-
-    if (
-      errorMsg.includes("decrypt") ||
-      errorMsg.includes("encryption") ||
-      errorMsg.includes("des")
-    ) {
-      console.error("   ❌ ISSUE: DES encryption detected");
-      console.error("   📦 FIX: Repack with GRF Builder (Decrypt)");
+    if (errorMsg.includes("decrypt") || errorMsg.includes("encryption") || errorMsg.includes("des")) {
+      console.error("   ❌ Issue: encryption/decryption problem (often DES).");
     } else if (errorMsg.includes("magic") || errorMsg.includes("header")) {
-      console.error("   ❌ ISSUE: Invalid GRF header");
-      console.error("   📦 FIX: File may be corrupted");
-    } else if (
-      errorMsg.includes("compress") ||
-      errorMsg.includes("inflate") ||
-      errorMsg.includes("zlib")
-    ) {
-      console.error("   ❌ ISSUE: Error while decompressing files");
-      console.error("   📦 FIX: GRF may be corrupted or using incompatible compression");
+      console.error("   ❌ Issue: invalid GRF header / corrupted file.");
+    } else if (errorMsg.includes("compress") || errorMsg.includes("inflate") || errorMsg.includes("zlib")) {
+      console.error("   ❌ Issue: decompression error (corrupt data or incompatible compression).");
     } else if (errorMsg.includes("version")) {
-      console.error("   ❌ ISSUE: Incompatible GRF version");
-      console.error("   📦 FIX: Repack with GRF Builder to version 0x200");
+      console.error("   ❌ Issue: incompatible GRF version.");
     } else {
-      console.error("   ❓ ISSUE: Unknown error");
-      console.error("   📦 FIX: Try repacking with GRF Builder (Decrypt)");
+      console.error("   ❓ Issue: unknown.");
     }
 
     if (error.stack) {
-      console.error("\n📚 Full Stack Trace:");
+      console.error("\n📚 Stack trace:");
       console.error(error.stack);
     }
 
-    console.log("\n" + "═".repeat(80));
-    console.log("❌ CONCLUSION: GRF IS NOT COMPATIBLE!");
-    console.log("═".repeat(80));
+    printDivider();
+    console.log("❌ CONCLUSION: FAILED TO READ THIS GRF WITH CURRENT LOADER.");
+    printDivider();
 
-    console.log("\n🔧 RECOMMENDED FIX:");
-    console.log("   1. Download GRF Builder: https://github.com/Tokeiburu/GRFEditor");
-    console.log("   2. Open GRF Builder");
-    console.log("   3. File → Options → Repack type → Decrypt");
-    console.log("   4. Tools → Repack");
-    console.log("   5. Wait and replace the original file\n");
-
+    return false;
+  } finally {
     if (fd !== null) {
       try {
         fs.closeSync(fd);
-      } catch (e) {
-        // Ignore close error
-      }
+      } catch (_) {}
     }
-
-    return false;
   }
 }
 
-// Run
+// ---------- runner ----------
 
 const args = process.argv.slice(2);
 
 if (args.length === 0) {
-  console.log("\n📖 Usage: npm run test-grf <path-to-file.grf>");
+  console.log("\n📖 Usage: node test-grf-real.fixed.js <path-to-file.grf>");
   console.log("\nExample:");
-  console.log("  npm run test-grf resources/data.grf");
-  console.log("");
+  console.log("  node test-grf-real.fixed.js resources/data.grf\n");
 
   // Try testing all GRFs inside resources/
   const resourcesPath = path.join(__dirname, "resources");
-
   if (fs.existsSync(resourcesPath)) {
     const grfFiles = fs
       .readdirSync(resourcesPath)
@@ -227,11 +379,10 @@ if (args.length === 0) {
 
     if (grfFiles.length > 0) {
       console.log("🔍 Testing all GRFs in resources/:\n");
-
       (async () => {
         for (const grf of grfFiles) {
-          const success = await testGrf(grf);
-          if (!success) process.exit(1);
+          const ok = await testGrf(grf);
+          if (!ok) process.exit(1);
         }
       })();
     } else {
@@ -240,7 +391,5 @@ if (args.length === 0) {
   }
 } else {
   const grfPath = args[0];
-  testGrf(grfPath).then((success) => {
-    process.exit(success ? 0 : 1);
-  });
+  testGrf(grfPath).then((ok) => process.exit(ok ? 0 : 1));
 }
