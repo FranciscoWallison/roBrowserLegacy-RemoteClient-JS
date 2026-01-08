@@ -12,7 +12,7 @@
  *  node tools/test-grf-read.mjs D:\\data.grf auto 500
  */
 
-import { GrfNode } from "../dist/index.js";
+import { GrfNode } from "@chicowall/grf-loader";
 import { openSync, closeSync } from "fs";
 import path from "path";
 

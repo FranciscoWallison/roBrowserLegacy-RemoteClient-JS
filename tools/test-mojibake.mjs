@@ -8,17 +8,14 @@
  *  node tools/test-mojibake.mjs
  */
 
-// Use CJS build for Node.js (has proper iconv-lite support)
-import { createRequire } from 'module';
-const require = createRequire(import.meta.url);
-const {
+import {
   isMojibake,
   fixMojibake,
   toMojibake,
   normalizeFilename,
   normalizeEncodingPath,
   hasIconvLite
-} = require("../dist/index.cjs");
+} from "@chicowall/grf-loader";
 
 console.log("=".repeat(70));
 console.log("Mojibake Detection & Fixing Test");
