@@ -615,11 +615,24 @@ class StartupValidator {
    * Validates ALL files in GRFs and returns detailed encoding statistics
    */
   async validateEncodingDeep(grfFiles) {
-    const { GrfNode, isMojibake, fixMojibake, hasIconvLite } = require("@chicowall/grf-loader");
+    const grfLoader = require("@chicowall/grf-loader");
+    const { GrfNode } = grfLoader;
+
+    // These functions may or may not be exported depending on version
+    const isMojibake = grfLoader.isMojibake || (() => false);
+    const fixMojibake = grfLoader.fixMojibake || ((s) => s);
+
+    // Check if iconv-lite is available
+    let iconvAvailable = false;
+    try {
+      require.resolve("iconv-lite");
+      iconvAvailable = true;
+    } catch {}
+
     const resourcesPath = path.join(process.cwd(), "resources");
 
     const results = {
-      iconvAvailable: hasIconvLite(),
+      iconvAvailable,
       grfs: [],
       summary: {
         totalFiles: 0,

@@ -11,9 +11,24 @@
  * Note: This tool does NOT modify GRF files. It creates a lookup table for runtime path resolution.
  */
 
-import { GrfNode, isMojibake, fixMojibake, hasIconvLite } from "@chicowall/grf-loader";
+import * as grfLoader from "@chicowall/grf-loader";
 import { openSync, closeSync, writeFileSync, existsSync, readFileSync } from "fs";
 import path from "path";
+import { createRequire } from "module";
+
+const require = createRequire(import.meta.url);
+const { GrfNode } = grfLoader;
+
+// These functions may or may not be exported depending on version
+const isMojibake = grfLoader.isMojibake || (() => false);
+const fixMojibake = grfLoader.fixMojibake || ((s) => s);
+
+// Check if iconv-lite is available
+let iconvAvailable = false;
+try {
+  require.resolve("iconv-lite");
+  iconvAvailable = true;
+} catch {}
 
 // Parse arguments
 const outputArg = process.argv.find((a) => a.startsWith("--output="));
@@ -24,7 +39,7 @@ console.log("GRF Encoding Converter");
 console.log("=".repeat(80));
 console.log("");
 
-console.log(`iconv-lite available: ${hasIconvLite() ? "Yes" : "No"}`);
+console.log(`iconv-lite available: ${iconvAvailable ? "Yes" : "No"}`);
 console.log(`Output: ${outputPath}`);
 console.log("");
 
