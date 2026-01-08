@@ -7,7 +7,11 @@
 		"start": "node index.js",
 		"doctor": "node doctor.js",
 		"debug-grf": "node debug-grf.js",
-		"test-grf": "node test-grf-real.js"
+		"test-grf": "node test-grf-real.js",
+		"validate:grf": "node tools/validate-grf.mjs",
+		"validate:all": "node tools/validate-all-grfs.mjs ./resources auto",
+		"validate:encoding": "node tools/validate-grf-iconv.mjs",
+		"test:mojibake": "node tools/test-mojibake.mjs"
 	},
 	"author": "Vincent Thibault",
 	"license": "GNU GPL V3",
