@@ -708,8 +708,9 @@ class StartupValidator {
           if (isMojibake(s)) {
             grfResult.mojibakeDetected++;
             if (grfResult.examples.mojibake.length < 10) {
-              const fixed = fixMojibake(s);
-              grfResult.examples.mojibake.push({ original: s, fixed });
+              const koreanPath = fixMojibake(s);
+              // grfPath = path in GRF (mojibake), koreanPath = correct Korean path
+              grfResult.examples.mojibake.push({ grfPath: s, koreanPath });
             }
           }
         }
@@ -724,7 +725,7 @@ class StartupValidator {
         const needsConv = grfResult.mojibakeDetected + grfResult.badC1Control;
         results.summary.needsConversion += needsConv;
 
-        // Add examples to global list
+        // Add examples to global list (koreanPath → grfPath mapping)
         grfResult.examples.mojibake.forEach((ex) => {
           if (results.filesToConvert.length < 50) {
             results.filesToConvert.push({ grf: grfFile, ...ex });

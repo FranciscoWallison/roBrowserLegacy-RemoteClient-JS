@@ -201,6 +201,11 @@
       <div class="loading">⏳ Loading encoding status...</div>
     </div>
 
+    <!-- Missing Files Status -->
+    <div id="missing-files-status" class="status-card" style="display: none; border-color: #ff9800;">
+      <div class="loading">⏳ Loading missing files...</div>
+    </div>
+
     <h2>📋 Setup Instructions</h2>
     <p>This is a remote client server for roBrowser. To get started:</p>
 
@@ -332,6 +337,11 @@
           `;
         }
 
+        // Show missing files if any
+        if (data.missingFiles && data.missingFiles.total > 0) {
+          displayMissingFiles(data.missingFiles);
+        }
+
       } catch (error) {
         const statusDiv = document.getElementById('validation-status');
         statusDiv.className = 'status-card status-warning';
@@ -347,6 +357,45 @@
       }
     }
 
+    // Display missing files status
+    function displayMissingFiles(missingInfo) {
+      const missingDiv = document.getElementById('missing-files-status');
+      missingDiv.style.display = 'block';
+      missingDiv.className = 'status-card status-warning';
+
+      const recentFiles = missingInfo.files.slice(-10);
+
+      missingDiv.innerHTML = `
+        <div class="status-header">
+          <span class="status-icon">⚠️</span>
+          <span>Missing Files</span>
+          <span class="badge badge-warning">${missingInfo.total} file(s)</span>
+        </div>
+        <p style="margin: 10px 0; font-size: 0.9em;">
+          Some files were requested but not found in GRFs or local folders.
+        </p>
+        ${recentFiles.length > 0 ? `
+          <div class="examples-list">
+            ${recentFiles.map(f => `
+              <div class="example-item">
+                <span class="original">${escapeHtml(f.requestedPath)}</span>
+                ${f.mappedPath ? `<br><small>Tried: ${escapeHtml(f.mappedPath)}</small>` : ''}
+              </div>
+            `).join('')}
+          </div>
+        ` : ''}
+        <div style="margin-top: 15px; padding: 10px; background-color: #fff; border-radius: 4px;">
+          <strong>💡 Solutions:</strong>
+          <ul style="margin: 10px 0; padding-left: 20px; font-size: 0.9em;">
+            <li>Run <code>npm run doctor:deep</code> to validate encoding</li>
+            <li>Run <code>npm run convert:encoding</code> to generate path mapping</li>
+            <li>Log file: <code>${escapeHtml(missingInfo.logFile || 'logs/missing-files.log')}</code></li>
+            <li><a href="https://github.com/FranciscoWallison/roBrowserLegacy-RemoteClient-JS/issues" target="_blank">Report issue on GitHub</a></li>
+          </ul>
+        </div>
+      `;
+    }
+
     // Display encoding status
     function displayEncodingStatus(encoding) {
       const encodingDiv = document.getElementById('encoding-status');
@@ -359,12 +408,12 @@
       if (encoding.filesToConvert && encoding.filesToConvert.length > 0) {
         examplesHtml = `
           <div style="margin-top: 15px;">
-            <strong>📝 Examples needing conversion:</strong>
+            <strong>📝 Path Mapping (Korean request → GRF path):</strong>
             <div class="examples-list">
               ${encoding.filesToConvert.slice(0, 10).map(f => `
                 <div class="example-item">
-                  <span class="original">${escapeHtml(f.original)}</span><br>
-                  → <span class="fixed">${escapeHtml(f.fixed)}</span>
+                  <span class="fixed">${escapeHtml(f.koreanPath || f.fixed || '')}</span><br>
+                  → <span class="original">${escapeHtml(f.grfPath || f.original || '')}</span>
                 </div>
               `).join('')}
               ${encoding.filesToConvert.length > 10 ? `<div style="padding: 5px; color: #666;">... and ${encoding.filesToConvert.length - 10} more</div>` : ''}

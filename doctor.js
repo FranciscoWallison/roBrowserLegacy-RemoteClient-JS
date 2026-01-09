@@ -133,9 +133,9 @@ function printEncodingReport(encoding) {
     console.log(`   U+FFFD: ${grf.badUfffd} | C1: ${grf.badC1Control} | Mojibake: ${grf.mojibakeDetected}`);
 
     if (grf.examples.mojibake.length > 0) {
-      console.log('   Examples (mojibake → fixed):');
+      console.log('   Path mapping (Korean request → GRF path):');
       grf.examples.mojibake.slice(0, 5).forEach((ex) => {
-        console.log(`     "${ex.original}" → "${ex.fixed}"`);
+        console.log(`     "${ex.koreanPath}" → "${ex.grfPath}"`);
       });
     }
     console.log('');
@@ -143,9 +143,10 @@ function printEncodingReport(encoding) {
 
   // Files needing conversion
   if (encoding.filesToConvert.length > 0) {
-    console.log('🔧 FILES NEEDING CONVERSION (sample):');
+    console.log('🔧 PATH MAPPING TABLE (Korean → GRF):');
+    console.log('   When client requests Korean path, lookup GRF path:');
     encoding.filesToConvert.slice(0, 20).forEach((f) => {
-      console.log(`   [${f.grf}] "${f.original}" → "${f.fixed}"`);
+      console.log(`   [${f.grf}] "${f.koreanPath}" → "${f.grfPath}"`);
     });
     if (encoding.filesToConvert.length > 20) {
       console.log(`   ... and ${encoding.filesToConvert.length - 20} more`);

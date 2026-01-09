@@ -162,13 +162,20 @@ async function main() {
           }
 
           if (fixed !== s) {
-            // Store both directions for lookup
-            mapping.paths[s] = fixed;
-            // Also store normalized version (lowercase, forward slash)
-            const normalizedOriginal = s.replace(/\\/g, "/").toLowerCase();
-            const normalizedFixed = fixed.replace(/\\/g, "/").toLowerCase();
-            if (normalizedOriginal !== s) {
-              mapping.paths[normalizedOriginal] = normalizedFixed;
+            // koreanPath = what client requests (fixed/Korean)
+            // grfPath = what's in the GRF (mojibake)
+            const koreanPath = fixed;
+            const grfPath = s;
+
+            // Store mapping: koreanPath → grfPath
+            // Client requests koreanPath, server looks up grfPath in GRF
+            mapping.paths[koreanPath] = grfPath;
+
+            // Also store normalized versions (lowercase, forward slash)
+            const normalizedKorean = koreanPath.replace(/\\/g, "/").toLowerCase();
+            const normalizedGrf = grfPath.replace(/\\/g, "/").toLowerCase();
+            if (normalizedKorean !== koreanPath) {
+              mapping.paths[normalizedKorean] = normalizedGrf;
             }
             grfMapped++;
           }

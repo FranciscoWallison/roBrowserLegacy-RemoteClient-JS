@@ -51,7 +51,21 @@ async function startServer() {
 
   // Validation status endpoint (JSON for frontend)
   app.get('/api/health', (req, res) => {
-    res.json(validationStatus);
+    // Include missing files info if available
+    const Client = require('./src/controllers/clientController');
+    const missingInfo = Client.getMissingFilesSummary ? Client.getMissingFilesSummary() : null;
+
+    res.json({
+      ...validationStatus,
+      missingFiles: missingInfo,
+    });
+  });
+
+  // Missing files endpoint
+  app.get('/api/missing-files', (req, res) => {
+    const Client = require('./src/controllers/clientController');
+    const summary = Client.getMissingFilesSummary ? Client.getMissingFilesSummary() : { total: 0, files: [] };
+    res.json(summary);
   });
 
   // API routes
