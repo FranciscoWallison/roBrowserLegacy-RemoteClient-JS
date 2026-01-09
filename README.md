@@ -6,8 +6,13 @@ Remote client that lets users play Ragnarok Online by downloading resources from
 
 * Support for files from multiple domains (Cross-Origin Resource Sharing — CORS)
 * Automatic extraction of GRF files (version 0x200 — without DES encryption)
-* Automatic BMP to PNG conversion to optimize transfers
-* Cache system to avoid redundant processing
+* **LRU file cache** for fast repeated file access
+* **GRF file indexing** for O(1) file lookups
+* **HTTP cache headers** (ETag, Cache-Control) for browser caching
+* **Gzip/Deflate compression** for text-based responses
+* **Korean filename encoding support** (CP949/EUC-KR) with mojibake detection/fixing
+* **Path mapping system** for encoding conversion (Korean path → GRF path)
+* **Missing files logging** with notifications
 * REST API to serve client files
 
 ---
@@ -19,91 +24,125 @@ roBrowserLegacy-RemoteClient-JS/
 │
 ├── index.js                    # Main Express server file
 ├── index.html                  # Home page served at the server root
+├── doctor.js                   # Diagnostic tool for troubleshooting
+├── prepare.js                  # Pre-startup optimization script
 ├── package.json                # Project dependencies and scripts
-├── README.md                   # Project documentation
+├── path-mapping.json           # Generated encoding conversion mappings
 │
 ├── src/                        # Application source code
 │   ├── config/                 # Configuration files
 │   │   └── configs.js          # Client and server settings
 │   │
 │   ├── controllers/            # Controller logic
-│   │   ├── clientController.js # Manages client file operations
-│   │   └── grfController.js    # Manages GRF extraction
+│   │   ├── clientController.js # File operations, caching, indexing
+│   │   └── grfController.js    # GRF extraction using @chicowall/grf-loader
 │   │
 │   ├── middlewares/            # Express middlewares
 │   │   └── debugMiddleware.js  # Debug logging middleware
 │   │
 │   ├── routes/                 # API route definitions
-│   │   └── index.js            # Main routes (GET, POST /search, /list-files)
+│   │   └── index.js            # Routes with HTTP cache headers
 │   │
-│   └── utils/                  # Utilities
-│       └── bmpUtils.js         # BMP to PNG conversion
+│   ├── utils/                  # Utilities
+│   │   ├── bmpUtils.js         # BMP to PNG conversion
+│   │   └── LRUCache.js         # LRU cache implementation
+│   │
+│   └── validators/             # Validation system
+│       └── startupValidator.js # Startup and encoding validation
 │
-├── resources/                  #  RAGNAROK CLIENT FILES
+├── tools/                      # CLI tools for validation and conversion
+│   ├── validate-grf.mjs        # Single GRF validation
+│   ├── validate-all-grfs.mjs   # Batch GRF validation
+│   ├── validate-grf-iconv.mjs  # Encoding validation with iconv-lite
+│   ├── convert-encoding.mjs    # Generate path-mapping.json
+│   └── test-mojibake.mjs       # Test mojibake detection
+│
+├── logs/                       # Log files
+│   └── missing-files.log       # Missing files log
+│
+├── resources/                  # RAGNAROK CLIENT FILES
 │   ├── DATA.INI                # Client configuration file (required)
-│   └── *.grf                   # Client GRF files (data.grf, rdata.grf, etc.)
+│   └── *.grf                   # Client GRF files
 │
-├── BGM/                        #  Game background music
-│   └── *.mp3, *.wav            # Audio files
-│
-├── data/                       #  Client data files
-│   ├── sprite/                 # Game sprites
-│   ├── texture/                # Textures
-│   ├── wav/                    # Sound effects
-│   └── ...                     # Other assets
-│
-├── System/                     #  Client system files
-│   └── *                       # Config and system files
-│
-└── AI/                         #  AI scripts for homunculus/mercenaries
-    └── USER_AI/                # Custom AI scripts
-        └── *                   # Lua AI files
+├── BGM/                        # Game background music
+├── data/                       # Client data files
+├── System/                     # Client system files
+└── AI/                         # AI scripts for homunculus/mercenaries
 ```
 
 ---
 
-## 📂 Detailed File Description
+## Performance Features
 
-### Root Files
+### LRU File Cache
 
-| File                    | Description                                                     | Required         |
-| ----------------------- | --------------------------------------------------------------- | ---------------- |
-| `index.js`              | Main Express server. Defines port, CORS, middlewares and routes | Yes              |
-| `index.html`            | HTML page served when accessing the server root (`/`)           | Yes              |
-| `package.json`          | Node.js dependencies and npm scripts                            | Yes              |
-| `test-grf.js`           | Test script for GRF extraction                                  | No (development) |
-| `test-ini-normalize.js` | Test script for INI normalization                               | No (development) |
+The server implements an in-memory LRU (Least Recently Used) cache for file content:
 
-### src/config/
+- **Default**: 100 files, 256MB max memory
+- **O(1)** get/set operations
+- Automatic eviction of least recently used files
+- Configurable via environment variables
 
-| File         | Content              | Settings                                                                                                                                                                                              |
-| ------------ | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `configs.js` | System configuration | `DEBUG`: enables debug logs<br>`CLIENT_RESPATH`: path to resources/<br>`CLIENT_DATAINI`: DATA.INI filename<br>`CLIENT_AUTOEXTRACT`: auto GRF extraction<br>`CLIENT_ENABLESEARCH`: enables file search |
+```env
+CACHE_MAX_FILES=100
+CACHE_MAX_MEMORY_MB=256
+```
 
-### src/controllers/
+### GRF File Index
 
-| File                  | Responsibility                                                                                                   |
-| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `clientController.js` | - Client initialization<br>- Reading DATA.INI<br>- File search<br>- Serving client files<br>- BMP→PNG conversion |
-| `grfController.js`    | - Loading GRF files<br>- Extracting assets from GRFs<br>- Extracted file cache                                   |
+At startup, the server builds a unified index from all GRF files:
 
-### src/routes/
+- **O(1) file lookups** instead of sequential GRF iteration
+- Normalized paths (case-insensitive, slash direction)
+- Integrates path mapping for Korean → mojibake resolution
+- Index statistics available via `/api/cache-stats`
 
-| File       | Defined Routes                                                                                                                                                |
-| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `index.js` | `GET /` - Serves index.html<br>`GET /*` - Serves any client file<br>`POST /search` - Searches files by regex<br>`GET /list-files` - Lists all available files |
+### HTTP Cache Headers
 
-### src/middlewares/
+Static game assets receive proper cache headers:
 
-| File                 | Purpose                            |
-| -------------------- | ---------------------------------- |
-| `debugMiddleware.js` | Logs HTTP requests when DEBUG=true |
+- **ETag** for content validation
+- **Cache-Control**: `max-age=86400, immutable` for game assets
+- **304 Not Modified** responses for conditional requests
+- Reduces bandwidth and speeds up repeated requests
 
-### src/utils/
+### Response Compression
 
-| File          | Purpose                                  |
-| ------------- | ---------------------------------------- |
-| `bmpUtils.js` | Automatically converts BMP images to PNG |
+- Gzip/Deflate compression for text-based responses
+- Only compresses responses > 1KB
+- Automatic content-type detection
+
+---
+
+## Korean Filename Encoding Support
+
+Many Ragnarok GRF files contain Korean filenames encoded in CP949/EUC-KR. When these are read on non-Korean systems, they appear as mojibake (garbled characters).
+
+### The Problem
+
+Client requests: `/data/texture/유저인터페이스/t_배경3-3.tga`
+GRF contains: `/data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/t_¹è°æ3-3.tga`
+
+### The Solution
+
+The server provides tools to:
+
+1. **Detect** encoding issues in GRF files
+2. **Generate** path mappings (Korean → GRF path)
+3. **Automatically resolve** requests using path mapping
+
+### Usage
+
+```bash
+# Deep encoding validation
+npm run doctor:deep
+
+# Generate path-mapping.json
+npm run convert:encoding
+
+# The server automatically uses path-mapping.json for lookups
+npm start
+```
 
 ---
 
@@ -115,29 +154,35 @@ roBrowserLegacy-RemoteClient-JS/
 npm install
 ```
 
-### 2. Run Validation (Recommended)
+### 2. Prepare for Optimal Startup (Recommended)
 
-Before starting the server, run the diagnostic tool to validate your setup:
+Run the prepare command to optimize everything before starting:
 
 ```bash
-npm run doctor
+# Full preparation (validates config, generates path mapping, builds index)
+npm run prepare
+
+# Quick preparation (skips deep encoding validation)
+npm run prepare:quick
 ```
 
-This will check:
+This will:
+- Validate configuration files
+- Generate `path-mapping.json` for encoding conversion
+- Build file index for fast lookups
+- Validate encoding (full mode only)
+- Create logs directory
 
-* ✓ Node.js and npm versions
-* ✓ Dependencies installed correctly
-* ✓ Environment variables configured
-* ✓ Required files and folders exist
-* ✓ GRF files compatibility (version 0x200, no DES encryption)
+### 3. Run Validation
 
-If any errors are found, the tool will provide specific instructions to fix them.
+```bash
+npm run doctor        # Basic validation
+npm run doctor:deep   # Deep validation including encoding check
+```
 
-### 3. Add Ragnarok Client Files
+### 4. Add Ragnarok Client Files
 
 #### `resources/` directory
-
-Put your client GRF files here:
 
 ```text
 resources/
@@ -147,7 +192,7 @@ resources/
 └── *.grf             # Other required GRF files
 ```
 
-**⚠️ CRITICAL - GRF Compatibility:**
+**GRF Compatibility:**
 
 This project **ONLY** works with GRF version **0x200** without DES encryption.
 
@@ -159,84 +204,7 @@ To ensure compatibility, repack your GRFs using **GRF Builder**:
 4. Click: **Tools → Repack**
 5. Wait for completion and replace the original file
 
-This guarantees the GRFs are in the correct format (0x200 / no DES).
-
-The `npm run doctor` command will validate your GRF files and warn you if they're incompatible.
-
-#### `BGM/` directory
-
-Replace the contents with your client’s BGM folder:
-
-```text
-BGM/
-├── 01.mp3
-├── 02.mp3
-└── ...
-```
-
-#### `data/` directory
-
-Replace the contents with your client’s data folder:
-
-```text
-data/
-├── sprite/
-├── texture/
-├── wav/
-└── ...
-```
-
-#### `System/` directory
-
-Replace the contents with your client’s System folder:
-
-```text
-System/
-├── itemInfo.lua
-├── skillInfo.lua
-└── ...
-```
-
-#### `AI/` directory (Optional)
-
-Add custom AI scripts:
-
-```text
-AI/
-└── USER_AI/
-    ├── AI.lua
-    └── ...
-```
-
-### 4. Configure the Server
-
-#### Edit `src/config/configs.js`
-
-```javascript
-module.exports = {
-	DEBUG: true,                      // true = enables logs, false = disables
-	CLIENT_RESPATH: "resources/",     // Path to client resources
-	CLIENT_DATAINI: "DATA.INI",       // DATA.INI filename
-	CLIENT_AUTOEXTRACT: true,         // true = auto extract GRF
-	CLIENT_ENABLESEARCH: true,        // true = enables POST /search route
-};
-```
-
-#### Edit `index.js` - Configure CORS
-
-```javascript
-const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'http://localhost:8000'; // 'https://your-domain.com';
-
-const corsOptions = {
-  origin: [CLIENT_PUBLIC_URL, 'http://localhost:3338'],
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'],
-  credentials: true,
-};
-```
-
-Replace `https://your-domain.com` with the domain where roBrowser is running.
-
-### 5. Environment Variables (Required)
+### 5. Environment Variables
 
 Create a `.env` file in the project root:
 
@@ -244,17 +212,32 @@ Create a `.env` file in the project root:
 PORT=3338
 CLIENT_PUBLIC_URL=http://127.0.0.1:8000
 NODE_ENV=development
-```
 
-**Important**: `CLIENT_PUBLIC_URL` is **required**. The server will not start without it.
+# Cache configuration (optional)
+CACHE_MAX_FILES=100
+CACHE_MAX_MEMORY_MB=256
+```
 
 ---
 
-## 🚀 Run the Server
+## NPM Scripts
 
-### Validation on Startup
+| Script | Description |
+|--------|-------------|
+| `npm start` | Start the server |
+| `npm run prepare` | Full pre-startup optimization |
+| `npm run prepare:quick` | Quick pre-startup (skip deep validation) |
+| `npm run doctor` | Run diagnostic validation |
+| `npm run doctor:deep` | Deep validation with encoding check |
+| `npm run convert:encoding` | Generate path-mapping.json |
+| `npm run validate:grf` | Validate a single GRF file |
+| `npm run validate:all` | Validate all GRFs in resources/ |
+| `npm run validate:encoding` | Validate encoding with iconv-lite |
+| `npm run test:mojibake` | Test mojibake detection |
 
-The server automatically validates your setup before starting. If any critical errors are found, the server will not start and will display detailed error messages.
+---
+
+## Run the Server
 
 ```bash
 npm start
@@ -273,53 +256,35 @@ Output example:
 
 ✓ INFORMATION:
   Node.js: v18.12.0
-  npm: 9.1.0
   Dependencies installed correctly
   PORT: 3338
-  CLIENT_PUBLIC_URL: http://127.0.0.1:8000
-  NODE_ENV: development
-  resources/ folder OK
-  DATA.INI file OK
   Valid GRF: data.grf (version 0x200, no DES)
-
-⚠️  WARNINGS:
-  BGM/ folder is empty - may cause issues depending on the client
 
 ================================================================================
 ✅ Validation completed successfully!
-⚠️  1 warning(s) found
 ================================================================================
+
+Client initialized in 1250ms (450,000 files indexed)
+File index built in 320ms
 
 ✅ Server started successfully!
 🌐 URL: http://localhost:3338
 📊 Status: http://localhost:3338/api/health
 ```
 
-### Manual Validation
-
-Run the diagnostic tool anytime:
-
-```bash
-npm run doctor
-```
-
-This provides a detailed report and troubleshooting steps for any issues found.
-
-Access the server: `http://localhost:3338`
-
-Check validation status: `http://localhost:3338/api/health`
-
 ---
 
-## 🔌 API Endpoints
+## API Endpoints
 
-| Method | Route         | Description               | Params                  |
-| ------ | ------------- | ------------------------- | ----------------------- |
-| GET    | `/`           | Returns `index.html`      | -                       |
-| GET    | `/api/health` | Validation status (JSON)  | -                       |
-| GET    | `/*`          | Serves any client file    | File path in the URL    |
-| POST   | `/search`     | Searches files by regex   | `{ "filter": "regex" }` |
-| GET    | `/list-files` | Lists all available files | -                       |
+| Method | Route | Description |
+|--------|-------|-------------|
+| GET | `/` | Returns `index.html` |
+| GET | `/api/health` | Full system status (validation, cache, index, missing files) |
+| GET | `/api/cache-stats` | Cache and index statistics |
+| GET | `/api/missing-files` | List of files not found |
+| GET | `/*` | Serves any client file (with caching) |
+| POST | `/search` | Searches files by regex |
+| GET | `/list-files` | Lists all available files |
 
 ### Usage Examples
 
@@ -327,6 +292,43 @@ Check validation status: `http://localhost:3338/api/health`
 
 ```bash
 curl http://localhost:3338/api/health
+```
+
+Response includes:
+- Validation status
+- Cache statistics (hits, misses, hit rate, memory usage)
+- Index statistics (total files, GRF count)
+- Missing files summary
+
+**Check cache performance:**
+
+```bash
+curl http://localhost:3338/api/cache-stats
+```
+
+```json
+{
+  "cache": {
+    "size": 45,
+    "maxSize": 100,
+    "memoryUsedMB": "128.50",
+    "maxMemoryMB": "256",
+    "hits": 1250,
+    "misses": 45,
+    "hitRate": "96.52%"
+  },
+  "index": {
+    "totalFiles": 450000,
+    "grfCount": 3,
+    "indexBuilt": true
+  }
+}
+```
+
+**Check missing files:**
+
+```bash
+curl http://localhost:3338/api/missing-files
 ```
 
 **Search files:**
@@ -337,61 +339,62 @@ curl -X POST http://localhost:3338/search \
   -d '{"filter": "sprite.*\\.spr"}'
 ```
 
-**List files:**
-
-```bash
-curl http://localhost:3338/list-files
-```
-
-**Download a file:**
-
-```bash
-curl http://localhost:3338/data/sprite/player.spr
-```
-
 ---
 
-## ⚠️ Important Notes
+## Troubleshooting
 
-1. **Startup Validation**: The server validates all requirements before starting. If validation fails, the server will not start.
-2. **GRF Version**: Only GRF version 0x200 without DES encryption is supported. Use GRF Builder to repack incompatible files.
-3. **Environment Variables**: `CLIENT_PUBLIC_URL` is **required**. The server will not start without it.
-4. **DATA.INI**: Required inside `resources/`. Must list at least one .grf file.
-5. **Dependencies**: Run `npm install` before starting. The server checks for missing dependencies.
-6. **Cache**: Extracted files are cached for better performance
-7. **CORS**: Configure `CLIENT_PUBLIC_URL` correctly to avoid CORS errors
-8. **Gitignore**: `BGM/`, `data/`, `resources/`, `System/` and `AI/` directories are in `.gitignore` to avoid versioning client files
+### Encoding Issues
 
-## 🩺 Troubleshooting
+If files are not found due to encoding issues:
 
-If you encounter errors:
+1. Run deep validation: `npm run doctor:deep`
+2. Generate path mapping: `npm run convert:encoding`
+3. Restart the server
 
-1. **Run diagnostics**: `npm run doctor`
-2. **Check logs**: The validation report shows exactly what's wrong
-3. **Common issues**:
+### Missing Files
 
-   * **Dependencies not installed**: Run `npm install`
-   * **CLIENT_PUBLIC_URL not set**: Create `.env` file with `CLIENT_PUBLIC_URL=http://your-url`
-   * **Incompatible GRF**: Repack with GRF Builder (see GRF Compatibility section)
-   * **Missing DATA.INI**: Create `resources/DATA.INI` with your GRF list
-   * **Empty resources/**: Add at least one .grf file to `resources/`
+The server logs missing files to `logs/missing-files.log`. Check:
 
-The startup validation and `npm run doctor` command will guide you through fixing any issues.
+- `/api/missing-files` endpoint for recent missing files
+- Console output for missing file alerts (triggers after 10+ missing files)
+
+### Performance Issues
+
+1. Check cache hit rate: `/api/cache-stats`
+2. Increase cache size via environment variables
+3. Run `npm run prepare` to pre-build indexes
+
+### Common Issues
+
+| Problem | Solution |
+|---------|----------|
+| Dependencies not installed | Run `npm install` |
+| CLIENT_PUBLIC_URL not set | Create `.env` file |
+| Incompatible GRF | Repack with GRF Builder |
+| Missing DATA.INI | Create `resources/DATA.INI` |
+| Encoding issues | Run `npm run convert:encoding` |
+| Slow file access | Run `npm run prepare`, check cache stats |
 
 ---
 
 ## Development
 
-### Test Scripts
-
-* `test-grf.js` - Tests GRF file extraction
-* `test-ini-normalize.js` - Tests INI file normalization
-
 ### Code Structure
 
-* **MVC Pattern**: Controllers handle logic, Routes define endpoints
-* **Middleware**: Configurable debug and CORS
-* **Utils**: Utility functions for file conversion
+- **MVC Pattern**: Controllers handle logic, Routes define endpoints
+- **LRU Cache**: O(1) file caching with memory limits
+- **File Index**: O(1) GRF file lookups
+- **Path Mapping**: Korean → mojibake path resolution
+- **HTTP Caching**: ETag, Cache-Control headers
+
+### Key Files
+
+| File | Purpose |
+|------|---------|
+| `src/utils/LRUCache.js` | LRU cache implementation |
+| `src/controllers/clientController.js` | File serving, caching, indexing |
+| `src/validators/startupValidator.js` | Validation and encoding checks |
+| `tools/convert-encoding.mjs` | Path mapping generation |
 
 ---
 
@@ -399,7 +402,7 @@ The startup validation and `npm run doctor` command will guide you through fixin
 
 GNU GPL V3
 
-## Author
+## Authors
 
-Vincent Thibault
-Francisco Wallison
+- Vincent Thibault
+- Francisco Wallison
