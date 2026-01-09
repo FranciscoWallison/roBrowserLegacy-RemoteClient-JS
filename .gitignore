@@ -1,16 +1,36 @@
-# 
+# Client files (large, user-specific)
 /BGM/*
 /data/*
 /resources/*
 /System/*
-/System/*
 /AI/*
-# 
-/node_modules/*
-/dist/
+
+# Dependencies
 /node_modules/
+/dist/
 /.yarn
-#
+
+# Lock files
 package-lock.json
 yarn.lock
+
+# Environment
 .env
+
+# Generated files
+grf-path-encoding-report.json
+path-mapping.json
+
+# Logs
+/logs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
