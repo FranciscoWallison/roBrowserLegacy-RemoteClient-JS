@@ -5,14 +5,21 @@
 	"main": "index.js",
 	"scripts": {
 		"start": "node index.js",
+		"prepare": "node prepare.js",
+		"prepare:quick": "node prepare.js --quick",
 		"doctor": "node doctor.js",
+		"doctor:deep": "node doctor.js --deep",
 		"debug-grf": "node debug-grf.js",
-		"test-grf": "node test-grf-real.js"
+		"validate:grf": "node tools/validate-grf.mjs",
+		"validate:all": "node tools/validate-all-grfs.mjs ./resources auto",
+		"validate:encoding": "node tools/validate-grf-iconv.mjs",
+		"test:mojibake": "node tools/test-mojibake.mjs",
+		"convert:encoding": "node tools/convert-encoding.mjs"
 	},
 	"author": "Vincent Thibault",
 	"license": "GNU GPL V3",
 	"dependencies": {
-		"@chicowall/grf-loader": "file:../grf-loader",
+		"@chicowall/grf-loader": "^1.0.13",
 		"cors": "^2.8.5",
 		"dotenv": "^17.2.3",
 		"express": "^4.17.1",

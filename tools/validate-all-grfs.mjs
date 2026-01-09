@@ -16,7 +16,7 @@
  *  node tools/validate-all-grfs.mjs ./resources cp949 --read=300
  */
 
-import { GrfNode } from "../dist/index.js";
+import { GrfNode } from "@chicowall/grf-loader";
 import { openSync, closeSync, writeFileSync, readdirSync, statSync } from "fs";
 import path from "path";
 import iconv from "iconv-lite";
