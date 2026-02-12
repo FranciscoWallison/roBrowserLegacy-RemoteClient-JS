@@ -3,6 +3,21 @@ const path = require('path');
 const Grf = require('./grfController');
 const configs = require('../config/configs');
 const LRUCache = require('../utils/LRUCache');
+const iconv = require('iconv-lite');
+
+/**
+ * Convert mojibake (CP949 bytes interpreted as Latin-1) back to proper Korean Unicode.
+ * roBrowser sends paths like "À¯ÀúÀÎÅÍÆäÀÌ½º" which is CP949 bytes of "유저인터페이스"
+ * read as ISO-8859-1. We reverse this by encoding as Latin-1 then decoding as CP949.
+ */
+function decodeMojibake(str) {
+  try {
+    const latin1Buf = iconv.encode(str, 'iso-8859-1');
+    return iconv.decode(latin1Buf, 'cp949');
+  } catch (e) {
+    return str;
+  }
+}
 
 // File content cache (100 files, 256MB max)
 const fileCache = new LRUCache(
@@ -100,6 +115,7 @@ const Client = {
   buildFileIndex() {
     const startTime = Date.now();
     fileIndex.clear();
+    let mojibakeCount = 0;
 
     for (let i = 0; i < this.grfs.length; i++) {
       const grf = this.grfs[i];
@@ -119,8 +135,31 @@ const Client = {
           if (!fileIndex.has(normalizedBackslash)) {
             fileIndex.set(normalizedBackslash, { grfIndex: i, originalPath: file });
           }
+
+          // Also index the mojibake version of the path (for roBrowser compatibility)
+          // roBrowser sends Korean paths as CP949 bytes interpreted as Latin-1
+          try {
+            const cp949Buf = iconv.encode(file, 'cp949');
+            const mojibakePath = iconv.decode(cp949Buf, 'iso-8859-1');
+            if (mojibakePath !== file) {
+              const normalizedMojibake = mojibakePath.toLowerCase().replace(/\\/g, '/');
+              if (!fileIndex.has(normalizedMojibake)) {
+                fileIndex.set(normalizedMojibake, { grfIndex: i, originalPath: file });
+                mojibakeCount++;
+              }
+              const mojibakeBackslash = mojibakePath.toLowerCase().replace(/\//g, '\\');
+              if (!fileIndex.has(mojibakeBackslash)) {
+                fileIndex.set(mojibakeBackslash, { grfIndex: i, originalPath: file });
+              }
+            }
+          } catch (e) {
+            // Skip files that can't be encoded
+          }
         }
       }
+    }
+    if (mojibakeCount > 0) {
+      console.log(`Added ${mojibakeCount} mojibake path mappings for roBrowser compatibility`);
     }
 
     // Add path mapping entries to index
@@ -172,6 +211,16 @@ const Client = {
     const normalizedBackslash = filePath.toLowerCase().replace(/\//g, '\\');
 
     let indexEntry = fileIndex.get(normalizedPath) || fileIndex.get(normalizedBackslash);
+
+    // Try mojibake decode: convert Latin-1 mojibake back to Korean Unicode
+    if (!indexEntry) {
+      const decodedPath = decodeMojibake(filePath);
+      if (decodedPath !== filePath) {
+        const normalizedDecoded = decodedPath.toLowerCase().replace(/\\/g, '/');
+        const normalizedDecodedBack = decodedPath.toLowerCase().replace(/\//g, '\\');
+        indexEntry = fileIndex.get(normalizedDecoded) || fileIndex.get(normalizedDecodedBack);
+      }
+    }
 
     // Try path mapping if not in index
     if (!indexEntry && pathMapping && pathMapping.paths) {
