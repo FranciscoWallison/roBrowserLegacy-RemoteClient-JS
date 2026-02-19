@@ -3,6 +3,7 @@ const path = require('path');
 const Grf = require('./grfController');
 const configs = require('../config/configs');
 const LRUCache = require('../utils/LRUCache');
+const logger = require('../utils/logger');
 const iconv = require('iconv-lite');
 
 /**
@@ -35,9 +36,9 @@ const pathMappingFile = path.join(__dirname, '..', '..', 'path-mapping.json');
 if (fs.existsSync(pathMappingFile)) {
   try {
     pathMapping = JSON.parse(fs.readFileSync(pathMappingFile, 'utf-8'));
-    console.log(`Loaded path mapping: ${Object.keys(pathMapping.paths || {}).length} entries`);
+    logger.debug(`Loaded path mapping: ${Object.keys(pathMapping.paths || {}).length} entries`);
   } catch (e) {
-    console.error('Failed to load path-mapping.json:', e.message);
+    logger.error('Failed to load path-mapping.json:', e.message);
   }
 }
 
@@ -63,7 +64,7 @@ function flushLogQueue() {
     }
     fs.appendFileSync(missingFilesLog, entries.join(''));
   } catch (e) {
-    console.error('Failed to write missing file log:', e.message);
+    logger.error('Failed to write missing file log:', e.message);
   }
 }
 
@@ -79,7 +80,7 @@ const Client = {
     this.data_ini = path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
 
     if (!fs.existsSync(this.data_ini)) {
-      console.error('DATA.INI file not found:', this.data_ini);
+      logger.error('DATA.INI file not found:', this.data_ini);
       return;
     }
 
@@ -88,7 +89,7 @@ const Client = {
 
     // Check if data section exists and has GRF files configured
     if (!dataIni.data || dataIni.data.length === 0) {
-      console.log('No GRF files configured in DATA.INI. Add GRF files to [data] section.');
+      logger.warn('No GRF files configured in DATA.INI. Add GRF files to [data] section.');
       this.grfs = [];
       return;
     }
@@ -105,7 +106,7 @@ const Client = {
     this.buildFileIndex();
 
     const elapsed = Date.now() - startTime;
-    console.log(`Client initialized in ${elapsed}ms (${fileIndex.size.toLocaleString()} files indexed)`);
+    logger.info(`Client initialized in ${elapsed}ms (${fileIndex.size.toLocaleString()} files indexed)`);
   },
 
   /**
@@ -159,7 +160,7 @@ const Client = {
       }
     }
     if (mojibakeCount > 0) {
-      console.log(`Added ${mojibakeCount} mojibake path mappings for roBrowser compatibility`);
+      logger.debug(`Added ${mojibakeCount} mojibake path mappings for roBrowser compatibility`);
     }
 
     // Add path mapping entries to index
@@ -180,7 +181,7 @@ const Client = {
 
     indexBuilt = true;
     const elapsed = Date.now() - startTime;
-    console.log(`File index built in ${elapsed}ms`);
+    logger.debug(`File index built in ${elapsed}ms`);
   },
 
   async getFile(filePath) {
@@ -202,7 +203,7 @@ const Client = {
         fileCache.set(cacheKey, content);
         return content;
       } catch (e) {
-        console.error(`Error reading local file: ${e.message}`);
+        logger.error(`Error reading local file: ${e.message}`);
       }
     }
 
@@ -291,7 +292,7 @@ const Client = {
         }
         fs.writeFileSync(localPath, content);
       } catch (e) {
-        console.error(`Failed to extract file: ${e.message}`);
+        logger.error(`Failed to extract file: ${e.message}`);
       }
     });
   },
@@ -321,7 +322,7 @@ const Client = {
     if (logFlushTimer) clearTimeout(logFlushTimer);
     logFlushTimer = setTimeout(flushLogQueue, 1000);
 
-    console.error(`File not found: ${grfPath}${mappedPath ? ` (tried: ${mappedPath})` : ''}`);
+    logger.debug(`File not found: ${grfPath}${mappedPath ? ` (tried: ${mappedPath})` : ''}`);
 
     // Check if we should send notification
     this.checkNotification();
@@ -334,12 +335,7 @@ const Client = {
 
     lastNotificationTime = now;
 
-    console.log('\n⚠️  MISSING FILES ALERT:');
-    console.log(`   ${this.missingFiles.length} files not found`);
-    console.log('   Run "npm run doctor:deep" to validate encoding');
-    console.log('   Run "npm run convert:encoding" to generate path mapping');
-    console.log(`   Log file: ${missingFilesLog}`);
-    console.log('   Report issue: https://github.com/FranciscoWallison/roBrowserLegacy-RemoteClient-JS/issues\n');
+    logger.warn(`MISSING FILES ALERT: ${this.missingFiles.length} files not found. Log: ${missingFilesLog}`);
   },
 
   getMissingFilesSummary() {
@@ -385,7 +381,7 @@ const Client = {
 
   search(regex) {
     if (!configs.CLIENT_ENABLESEARCH) {
-      console.error('Search feature is disabled');
+      logger.warn('Search feature is disabled');
       return [];
     }
 
@@ -419,29 +415,50 @@ const Client = {
   /**
    * Warm up cache with frequently accessed files
    */
-  async warmCache(patterns = []) {
+  async warmCache(patterns = [], limit = 500) {
     const defaultPatterns = [
-      /\.gat$/i,
-      /\.rsw$/i,
+      // UI and interface (loaded on every session)
+      /data\/texture\/À¯ÀúÀÎÅÍÆäÀÌ½º/i,
+      /data\/texture\/userinterface/i,
       /loading\//i,
       /cardbmp\//i,
+      // Map data (prontera = default spawn)
+      /prontera\.gat$/i,
+      /prontera\.gnd$/i,
+      /prontera\.rsw$/i,
+      // Common map formats (altitude, ground, world)
+      /\.gat$/i,
+      /\.rsw$/i,
+      // Player sprites (all classes)
+      /data\/sprite\/ÀÎ°£Á·/i,
+      /data\/sprite\/인간족/i,
+      // Palette files (small, frequently accessed)
+      /\.pal$/i,
+      // Lua/lub config files (small, loaded early)
+      /\.lub$/i,
     ];
 
     const patternsToUse = patterns.length > 0 ? patterns : defaultPatterns;
+    const maxFiles = limit;
     let warmed = 0;
+    const startTime = Date.now();
 
     for (const [, entry] of fileIndex) {
-      if (warmed >= 50) break; // Limit warm-up to 50 files
+      if (warmed >= maxFiles) break;
 
       for (const pattern of patternsToUse) {
         if (pattern.test(entry.originalPath)) {
           const grf = this.grfs[entry.grfIndex];
           if (grf && grf.getFile) {
-            const content = await grf.getFile(entry.originalPath);
-            if (content) {
-              const cacheKey = entry.originalPath.toLowerCase();
-              fileCache.set(cacheKey, content);
-              warmed++;
+            try {
+              const content = await grf.getFile(entry.originalPath);
+              if (content) {
+                const cacheKey = entry.originalPath.toLowerCase();
+                fileCache.set(cacheKey, content);
+                warmed++;
+              }
+            } catch (e) {
+              // Skip files that fail to extract
             }
           }
           break;
@@ -449,7 +466,8 @@ const Client = {
       }
     }
 
-    console.log(`Cache warmed with ${warmed} files`);
+    const elapsed = Date.now() - startTime;
+    logger.info(`Cache warmed with ${warmed} files in ${elapsed}ms`);
     return warmed;
   }
 };

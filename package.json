@@ -5,6 +5,7 @@
 	"main": "index.js",
 	"scripts": {
 		"start": "node index.js",
+		"start:prod": "node start-prod.js",
 		"prepare": "node prepare.js",
 		"prepare:quick": "node prepare.js --quick",
 		"doctor": "node doctor.js",
@@ -23,6 +24,7 @@
 		"cors": "^2.8.5",
 		"dotenv": "^17.2.3",
 		"express": "^4.17.1",
-		"iconv-lite": "^0.7.1"
+		"iconv-lite": "^0.7.1",
+		"ws": "^8.19.0"
 	}
 }

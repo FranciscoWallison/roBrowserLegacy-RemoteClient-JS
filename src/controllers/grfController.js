@@ -3,6 +3,7 @@ const { GrfNode } = require("@chicowall/grf-loader");
 
 const fs = require("fs");
 const path = require("path");
+const logger = require("../utils/logger");
 class Grf {
 	constructor(filePath) {
 		this.fileName = path.basename(filePath);
@@ -13,7 +14,7 @@ class Grf {
 
 	async load() {
 		if (!fs.existsSync(this.filePath)) {
-			console.error(`GRF file not found: ${this.filePath}`);
+			logger.error(`GRF file not found: ${this.filePath}`);
 			return;
 		}
 
@@ -23,13 +24,13 @@ class Grf {
 			await this.grf.load();
 			this.loaded = true;
 		} catch (error) {
-			console.error("Error loading GRF file:", error);
+			logger.error("Error loading GRF file:", error);
 		}
 	}
 
 	async getFile(filename) {
 		if (!this.loaded || !this.grf) {
-			console.error("GRF not loaded or not initialized");
+			logger.error("GRF not loaded or not initialized");
 			return null;
 		}
 		try {
@@ -39,14 +40,14 @@ class Grf {
 			}
 			return Buffer.from(data);
 		} catch (error) {
-			console.error(`Error extracting file: ${error}`);
+			logger.error(`Error extracting file: ${error}`);
 			return null;
 		}
 	}
 
 	listFiles() {
 		if (!this.loaded || !this.grf) {
-			console.error("GRF not loaded or not initialized");
+			logger.error("GRF not loaded or not initialized");
 			return [];
 		}
 
