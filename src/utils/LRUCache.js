@@ -2,8 +2,10 @@
  * LRU Cache implementation for file content caching
  * Provides O(1) get/set operations with automatic eviction
  */
+const crypto = require('crypto');
+
 class LRUCache {
-  constructor(maxSize = 100, maxMemoryMB = 256) {
+  constructor(maxSize = 5000, maxMemoryMB = 1024) {
     this.maxSize = maxSize;
     this.maxMemoryBytes = maxMemoryMB * 1024 * 1024;
     this.cache = new Map();
@@ -15,7 +17,7 @@ class LRUCache {
   /**
    * Get item from cache
    * @param {string} key - Cache key
-   * @returns {Buffer|null} - Cached content or null
+   * @returns {{ data: Buffer, etag: string }|null} - Cached content with ETag or null
    */
   get(key) {
     if (!this.cache.has(key)) {
@@ -28,7 +30,7 @@ class LRUCache {
     this.cache.delete(key);
     this.cache.set(key, item);
     this.hits++;
-    return item.data;
+    return { data: item.data, etag: item.etag };
   }
 
   /**
@@ -62,8 +64,11 @@ class LRUCache {
       this.cache.delete(firstKey);
     }
 
+    // Pre-compute ETag at cache time (avoids per-request MD5 hashing)
+    const etag = crypto.createHash('md5').update(data).digest('hex').slice(0, 16);
+
     // Add new item
-    this.cache.set(key, { data, size });
+    this.cache.set(key, { data, size, etag });
     this.currentMemory += size;
   }
 

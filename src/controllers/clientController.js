@@ -20,10 +20,10 @@ function decodeMojibake(str) {
   }
 }
 
-// File content cache (100 files, 256MB max)
+// File content cache (5000 files, 1024MB max)
 const fileCache = new LRUCache(
-  parseInt(process.env.CACHE_MAX_FILES) || 100,
-  parseInt(process.env.CACHE_MAX_MEMORY_MB) || 256
+  parseInt(process.env.CACHE_MAX_FILES) || 5000,
+  parseInt(process.env.CACHE_MAX_MEMORY_MB) || 1024
 );
 
 // GRF file index for O(1) lookups: filename → { grfIndex, originalPath }
@@ -184,12 +184,21 @@ const Client = {
     logger.debug(`File index built in ${elapsed}ms`);
   },
 
+  /**
+   * Get file with pre-computed ETag from cache
+   * Returns { data, etag } or null
+   */
+  getFileCachedETag(filePath) {
+    const cacheKey = filePath.toLowerCase();
+    return fileCache.get(cacheKey);
+  },
+
   async getFile(filePath) {
     // Check cache first
     const cacheKey = filePath.toLowerCase();
     const cached = fileCache.get(cacheKey);
     if (cached) {
-      return cached;
+      return cached.data;
     }
 
     // Normalize paths
