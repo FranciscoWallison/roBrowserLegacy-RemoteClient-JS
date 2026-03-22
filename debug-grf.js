@@ -154,7 +154,7 @@ function debugGrf(grfPath) {
 
     console.log(`   - Todos os bytes são zero? ${allZeros ? '✅ SIM' : '❌ NÃO'}`);
 
-    console.log(`   - Tem criptografia DES? ${allZeros ? '✅ NÃO (correto)' : '❌ SIM (incompatível)'}`);
+    console.log(`   - Tem criptografia DES? ${allZeros ? '✅ NÃO (sem DES)' : '✅ SIM (DES suportado pela biblioteca)'}`);
 
  
 
@@ -172,7 +172,7 @@ function debugGrf(grfPath) {
 
     console.log(`   Hex: ${versionHex}`);
 
-    console.log(`   Válido: ${version === 0x200 ? '✅ SIM (0x200)' : '❌ NÃO (esperado: 0x200)'}`);
+    console.log(`   Válido: ${version === 0x200 ? '✅ SIM (0x200)' : version === 0x300 ? '✅ SIM (0x300)' : '❌ NÃO (esperado: 0x200 ou 0x300)'}`);
 
  
 
@@ -186,7 +186,7 @@ function debugGrf(grfPath) {
 
  
 
-    const isValid = version === 0x200 && allZeros;
+    const isValid = (version === 0x200 || version === 0x300);
 
  
 
@@ -194,37 +194,15 @@ function debugGrf(grfPath) {
 
       console.log('\n✅ GRF COMPATÍVEL!');
 
-      console.log('   - Versão: 0x200 ✅');
+      console.log(`   - Versão: ${versionHex} ✅`);
 
-      console.log('   - Sem DES: SIM ✅');
+      console.log(`   - DES: ${allZeros ? 'NÃO (sem criptografia)' : 'SIM (suportado)'} ✅`);
 
     } else {
 
       console.log('\n❌ GRF INCOMPATÍVEL!');
 
-      if (version !== 0x200) {
-
-        console.log(`   - Versão: ${versionHex} ❌ (esperado: 0x200)`);
-
-      } else {
-
-        console.log(`   - Versão: 0x200 ✅`);
-
-      }
-
- 
-
-      if (!allZeros) {
-
-        console.log(`   - Criptografia DES: SIM ❌ (esperado: NÃO)`);
-
-        console.log(`\n   📦 SOLUÇÃO: Reempacotar com GRF Builder (Decrypt)`);
-
-      } else {
-
-        console.log(`   - Sem DES: SIM ✅`);
-
-      }
+      console.log(`   - Versão: ${versionHex} ❌ (esperado: 0x200 ou 0x300)`);
 
     }
 
