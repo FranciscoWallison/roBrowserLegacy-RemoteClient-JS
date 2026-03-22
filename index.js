@@ -4,8 +4,8 @@ const express = require('express');
 const http = require('http');
 const path = require('path');
 const cors = require('cors');
-const zlib = require('zlib');
 const net = require('net');
+const compression = require('compression');
 const logger = require('./src/utils/logger');
 const StartupValidator = require('./src/validators/startupValidator');
 
@@ -24,43 +24,8 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 // Global variable to store validation status
 let validationStatus = null;
 
-// Compression middleware for text-based responses
-function compressionMiddleware(req, res, next) {
-  const acceptEncoding = req.headers['accept-encoding'] || '';
-
-  // Skip compression for small responses or binary files
-  const originalSend = res.send.bind(res);
-
-  res.send = function (body) {
-    // Only compress text-based content types
-    const contentType = res.get('Content-Type') || '';
-    const isCompressible = /text|json|javascript|xml|html/.test(contentType);
-
-    if (!isCompressible || !body || body.length < 1024) {
-      return originalSend(body);
-    }
-
-    if (acceptEncoding.includes('gzip')) {
-      zlib.gzip(body, (err, compressed) => {
-        if (err) return originalSend(body);
-        res.set('Content-Encoding', 'gzip');
-        res.set('Content-Length', compressed.length);
-        originalSend(compressed);
-      });
-    } else if (acceptEncoding.includes('deflate')) {
-      zlib.deflate(body, (err, compressed) => {
-        if (err) return originalSend(body);
-        res.set('Content-Encoding', 'deflate');
-        res.set('Content-Length', compressed.length);
-        originalSend(compressed);
-      });
-    } else {
-      originalSend(body);
-    }
-  };
-
-  next();
-}
+// Game asset extensions that benefit from compression
+const COMPRESSIBLE_GAME_EXTENSIONS = /\.(spr|act|rsm|gnd|gat|rsw|str|bmp|tga|pal|lub|lua|txt|xml)$/i;
 
 // Main startup function
 async function startServer() {
@@ -107,7 +72,19 @@ async function startServer() {
   app.use(cors(corsOptions));
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
-  app.use(compressionMiddleware);
+
+  // Compression middleware - compresses text AND binary game assets
+  app.use(compression({
+    threshold: 1024,
+    filter: (req, res) => {
+      // Compress game assets (SPR, RSM, GND, etc.) that are highly compressible
+      if (COMPRESSIBLE_GAME_EXTENSIONS.test(req.path)) {
+        return true;
+      }
+      // Default compression filter for text/json/etc
+      return compression.filter(req, res);
+    }
+  }));
 
   // Debug middleware only in development
   if (!IS_PROD) {
