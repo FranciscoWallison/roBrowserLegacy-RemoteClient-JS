@@ -864,6 +864,35 @@ class StartupValidator {
       this.addWarning(".env file not found! Copy .env.example to .env and configure it");
     }
 
+    // Validate WS_ALLOWED_TARGETS when the proxy is enabled
+    const wsProxyEnabled = process.env.ENABLE_WSPROXY === 'true';
+    const wsAllowedRaw = process.env.WS_ALLOWED_TARGETS || '';
+    if (wsProxyEnabled) {
+      if (wsAllowedRaw) {
+        const entries = wsAllowedRaw.split(',').map(s => s.trim()).filter(Boolean);
+        const invalid = entries.filter(entry => {
+          const colonIdx = entry.lastIndexOf(':');
+          if (colonIdx === -1) return true;
+          const port = parseInt(entry.slice(colonIdx + 1), 10);
+          const host = entry.slice(0, colonIdx);
+          return !host || !Number.isInteger(port) || port < 1 || port > 65535;
+        });
+        if (invalid.length > 0) {
+          this.addError(
+            `WS_ALLOWED_TARGETS contains invalid entries: ${invalid.join(', ')}\n` +
+            `  Each entry must be "host:port" where port is 1-65535.`
+          );
+          hasErrors = true;
+        } else {
+          this.addInfo(`WS_ALLOWED_TARGETS: ${entries.join(', ')}`);
+        }
+        results.WS_ALLOWED_TARGETS = { defined: true, entries };
+      } else {
+        this.addInfo('WS_ALLOWED_TARGETS: not set, using localhost defaults (127.0.0.1:6900/6121/5121)');
+        results.WS_ALLOWED_TARGETS = { defined: false, usingDefaults: true };
+      }
+    }
+
     this.validationResults.env = { valid: !hasErrors, variables: results };
     return !hasErrors;
   }
