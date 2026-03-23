@@ -1,6 +1,6 @@
 # roBrowser Legacy Remote Client (Node.js)
 
-Servidor de cliente remoto para o [roBrowserLegacy](https://github.com/nicedreamdo/roBrowserLegacy) que serve assets do Ragnarok Online a partir de arquivos GRF via HTTP. Jogadores podem jogar diretamente no navegador sem precisar ter o client completo instalado localmente.
+Servidor de cliente remoto para o [roBrowserLegacy](https://github.com/MrAntares/roBrowserLegacy) que serve assets do Ragnarok Online a partir de arquivos GRF via HTTP. Jogadores podem jogar diretamente no navegador sem precisar ter o client completo instalado localmente.
 
 Com o **Modo Servidor Unificado**, este unico processo Node.js substitui tres servicos separados — servindo assets do jogo, arquivos estaticos e fazendo proxy de conexoes WebSocket para o rAthena — tudo em uma unica porta.
 
@@ -119,7 +119,7 @@ resources/
 └── *.grf             # Outros arquivos GRF
 ```
 
-**Compatibilidade de GRF:** Este projeto funciona com GRF versao **0x200** sem criptografia DES.
+**Compatibilidade de GRF:** Este projeto funciona com GRF versoes **0x200** e **0x300** sem criptografia DES.
 
 Para garantir compatibilidade, reempacote seus GRFs usando [GRF Builder/Editor](https://github.com/Tokeiburu/GRFEditor):
 1. Abra seu arquivo `.grf` no GRF Builder
@@ -220,10 +220,24 @@ Quando `ENABLE_WSPROXY=true`, o servidor embute um proxy WebSocket-para-TCP que 
 3. Servidor abre uma conexao TCP com o rAthena
 4. Pacotes sao transferidos bidirecionalmente: `WS ↔ TCP`
 
-**Seguranca:** Apenas conexoes para destinos na whitelist sao permitidas:
+**Seguranca:** Apenas conexoes para destinos na whitelist sao permitidas (padrao):
 - `127.0.0.1:6900` (Servidor de Login)
 - `127.0.0.1:6121` (Servidor de Char)
 - `127.0.0.1:5121` (Servidor de Map)
+
+**Destinos personalizados (Docker/Kubernetes):**
+
+Quando o rAthena roda em outro host (ex: containers Docker), configure os destinos permitidos via variavel de ambiente `WS_ALLOWED_TARGETS`:
+
+```env
+# Docker Desktop (macOS/Windows):
+WS_ALLOWED_TARGETS=host.docker.internal:6900,host.docker.internal:6121,host.docker.internal:5121
+
+# Servidor rAthena remoto:
+WS_ALLOWED_TARGETS=10.0.0.5:6900,10.0.0.5:6121,10.0.0.5:5121
+```
+
+Quando nao definido, usa os destinos localhost padrao (`127.0.0.1:6900/6121/5121`).
 
 **Configuracao do roBrowserLegacy** (`Config.local.js`):
 ```js
@@ -343,6 +357,7 @@ Quando `CLIENT_AUTOEXTRACT=true` (padrao em `src/config/configs.js`), arquivos e
 | `CACHE_WARM_UP` | `true` | Ativar aquecimento de cache na inicializacao |
 | `CACHE_WARM_UP_LIMIT` | `500` | Max arquivos a pre-carregar no aquecimento |
 | `ENABLE_WSPROXY` | `true` | Embutir proxy WebSocket (substitui wsproxy) |
+| `WS_ALLOWED_TARGETS` | `127.0.0.1:6900,...` | Pares `host:port` separados por virgula para allowlist do proxy WS |
 | `ENABLE_STATIC_SERVE` | `true` | Servir arquivos estaticos do roBrowserLegacy (substitui live-server) |
 | `ROBROWSER_PATH` | `../roBrowserLegacy` | Caminho para o diretorio do roBrowserLegacy |
 
@@ -532,6 +547,7 @@ O servidor registra arquivos ausentes em `logs/missing-files.log`. Verifique:
 2. Confira se `Config.local.js` tem `socketProxy: 'ws://127.0.0.1:3338/ws/'`
 3. Garanta que o rAthena esta rodando (login:6900, char:6121, map:5121)
 4. Verifique os logs do servidor por mensagens `WS proxy blocked connection`
+5. Para Docker/rAthena remoto: defina `WS_ALLOWED_TARGETS` no `.env` (veja [Variaveis de Ambiente](#variaveis-de-ambiente))
 
 ### Problemas Comuns
 
