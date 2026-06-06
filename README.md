@@ -22,6 +22,8 @@ With **Unified Server Mode**, this single Node.js process replaces three separat
   - [Embedded WebSocket Proxy](#embedded-websocket-proxy)
   - [Embedded Static File Server](#embedded-static-file-server)
   - [Switching to Separate Mode](#switching-to-separate-mode)
+- [Plugins](#plugins)
+  - [ESRGAN Upscaling](#esrgan-upscaling-plugin)
 - [Performance Features](#performance-features)
   - [LRU File Cache](#lru-file-cache)
   - [Cache Warm-Up](#cache-warm-up)
@@ -271,6 +273,77 @@ Then start wsproxy and live-server separately as before.
 
 ---
 
+## Plugins
+
+### ESRGAN Upscaling Plugin
+
+The server supports an optional plugin for serving AI-upscaled textures and sprites via [Real-ESRGAN](https://github.com/xinntao/Real-ESRGAN). The plugin is an external package that can be installed independently.
+
+**Package:** [`@chicowall/robrowser-esrgan`](https://github.com/FranciscoWallison/robrowser-esrgan)
+
+#### Quick Setup
+
+```bash
+# 1. Install the plugin
+npm install @chicowall/robrowser-esrgan
+
+# 2. Enable in .env
+ESRGAN_ENABLED=true
+ESRGAN_CACHE_DIR=./upscaled_cache
+
+# 3. Populate the cache (requires Real-ESRGAN API running)
+python ../tools/esrgan_pipeline/orchestrate.py
+
+# 4. Restart the server
+npm start
+```
+
+#### How It Works
+
+```
+Browser GET /data/texture/btn_ok.bmp
+    │
+    ▼
+┌─────────────────────────┐
+│  ESRGAN Middleware       │  ← Checks upscaled_cache/
+│  (plugin)                │     for pre-upscaled .png
+└───────────┬─────────────┘
+            │ found? → serve .png (with X-ESRGAN-Upscaled: true)
+            │ not found? ↓
+┌─────────────────────────┐
+│  GRF Lookup (original)  │  ← Serves original from GRF
+└─────────────────────────┘
+```
+
+- Intercepts requests for `.bmp`, `.tga`, `.png`, `.jpg`, `.spr`, `.act`
+- Serves pre-upscaled PNG from disk cache with HTTP 304 support
+- Falls through to normal GRF serving if no upscaled version exists
+- Zero overhead when `ESRGAN_ENABLED=false` (plugin is not loaded)
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `ESRGAN_ENABLED` | `false` | Enable the ESRGAN upscaling plugin |
+| `ESRGAN_CACHE_DIR` | `./upscaled_cache` | Path to the upscaled asset cache |
+
+#### Disabling / Uninstalling
+
+To disable without removing:
+```env
+ESRGAN_ENABLED=false
+```
+
+To fully remove:
+```bash
+npm uninstall @chicowall/robrowser-esrgan
+# Remove ESRGAN_ENABLED and ESRGAN_CACHE_DIR from .env
+```
+
+The server works normally without the plugin installed.
+
+---
+
 ## Performance Features
 
 ### LRU File Cache
@@ -360,6 +433,8 @@ When `CLIENT_AUTOEXTRACT=true` (default in `src/config/configs.js`), files extra
 | `WS_ALLOWED_TARGETS` | `127.0.0.1:6900,...` | Comma-separated `host:port` pairs for WS proxy allowlist |
 | `ENABLE_STATIC_SERVE` | `true` | Serve roBrowserLegacy static files (replaces live-server) |
 | `ROBROWSER_PATH` | `../roBrowserLegacy` | Path to roBrowserLegacy directory |
+| `ESRGAN_ENABLED` | `false` | Enable ESRGAN upscaling plugin (requires `@chicowall/robrowser-esrgan`) |
+| `ESRGAN_CACHE_DIR` | `./upscaled_cache` | Path to the pre-built upscaled asset cache |
 
 ---
 
