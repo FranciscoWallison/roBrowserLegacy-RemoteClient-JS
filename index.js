@@ -14,10 +14,13 @@ const server = http.createServer(app);
 const port = process.env.PORT || 3338;
 const routes = require('./src/routes');
 const debugMiddleware = require('./src/middlewares/debugMiddleware');
+const createRawImportMiddleware = require('./src/middlewares/rawImportMiddleware');
 
 const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'http://localhost:8000';
 const ENABLE_WSPROXY = process.env.ENABLE_WSPROXY === 'true';
 const ENABLE_STATIC_SERVE = process.env.ENABLE_STATIC_SERVE === 'true';
+const ESRGAN_ENABLED = process.env.ESRGAN_ENABLED === 'true';
+const ESRGAN_CACHE_DIR = process.env.ESRGAN_CACHE_DIR || './upscaled_cache';
 const ROBROWSER_PATH = process.env.ROBROWSER_PATH || '../roBrowserLegacy';
 const IS_PROD = process.env.NODE_ENV === 'production';
 
@@ -91,6 +94,16 @@ async function startServer() {
     app.use(debugMiddleware);
   }
 
+  // ESRGAN upscaling middleware - serves upscaled assets from disk cache
+  // Plugin: @chicowall/robrowser-esrgan (external package)
+  let esrganInstance = null;
+  if (ESRGAN_ENABLED) {
+    const createEsrganMiddleware = require('@chicowall/robrowser-esrgan');
+    const cachePath = path.resolve(__dirname, ESRGAN_CACHE_DIR);
+    esrganInstance = await createEsrganMiddleware({ cacheDir: cachePath, logger });
+    app.use(esrganInstance.middleware);
+  }
+
   // Validation status endpoint (JSON for frontend)
   app.get('/api/health', (req, res) => {
     const Client = require('./src/controllers/clientController');
@@ -103,6 +116,7 @@ async function startServer() {
       missingFiles: missingInfo,
       cache: cacheStats,
       index: indexStats,
+      esrgan: esrganInstance ? esrganInstance.getStats() : { enabled: false },
     });
   });
 
@@ -126,6 +140,10 @@ async function startServer() {
   if (ENABLE_STATIC_SERVE) {
     const roBrowserAbsPath = path.resolve(__dirname, ROBROWSER_PATH);
     logger.debug(`Static serve enabled: ${roBrowserAbsPath}`);
+
+    // Handle Vite-style ?raw imports (must come before express.static)
+    app.use(createRawImportMiddleware(roBrowserAbsPath));
+
     app.use(express.static(roBrowserAbsPath));
   }
 
