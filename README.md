@@ -24,6 +24,7 @@ With **Unified Server Mode**, this single Node.js process replaces three separat
   - [Switching to Separate Mode](#switching-to-separate-mode)
 - [Plugins](#plugins)
   - [ESRGAN Upscaling](#esrgan-upscaling-plugin)
+  - [External Data Directory](#external-data-directory)
 - [Performance Features](#performance-features)
   - [LRU File Cache](#lru-file-cache)
   - [Cache Warm-Up](#cache-warm-up)
@@ -342,6 +343,44 @@ npm uninstall @chicowall/robrowser-esrgan
 
 The server works normally without the plugin installed.
 
+### External Data Directory
+
+Some Ragnarok Online data files (e.g., `msgstringtable.txt`, `skillnametable.txt`, Lua configs) exist as loose files in the client's `data/` folder and are **not** packed inside the GRF. The `DATA_OVERRIDE_PATH` setting lets the server find and serve these files without copying them into the project.
+
+**Lookup order when a file is requested:**
+
+```
+1. Memory cache (LRU)
+2. Local data/ directory (auto-extracted files)
+3. DATA_OVERRIDE_PATH (external loose files)  ← NEW
+4. GRF archive lookup
+5. 404 Not Found
+```
+
+#### Configuration
+
+```env
+# Points to the RO client's data/ folder
+DATA_OVERRIDE_PATH=../cliente_exe/data
+```
+
+The path is relative to the project root. When not set, the server skips this step and behaves as before.
+
+#### Typical files served via DATA_OVERRIDE_PATH
+
+- `msgstringtable.txt` — in-game UI strings
+- `skillnametable.txt` / `skilldesctable.txt` — skill names and descriptions
+- `idnum2itemdesctable.txt` / `num2itemresnametable.txt` — item descriptions
+- `lua files/datainfo/*.lua` — job names, accessory IDs, NPC identities
+- `questid2display.txt` — quest display names
+- `mapnametable.txt` — map display names
+
+#### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATA_OVERRIDE_PATH` | *(unset)* | Path to external directory with loose data files not in GRF |
+
 ---
 
 ## Performance Features
@@ -435,6 +474,7 @@ When `CLIENT_AUTOEXTRACT=true` (default in `src/config/configs.js`), files extra
 | `ROBROWSER_PATH` | `../roBrowserLegacy` | Path to roBrowserLegacy directory |
 | `ESRGAN_ENABLED` | `false` | Enable ESRGAN upscaling plugin (requires `@chicowall/robrowser-esrgan`) |
 | `ESRGAN_CACHE_DIR` | `./upscaled_cache` | Path to the pre-built upscaled asset cache |
+| `DATA_OVERRIDE_PATH` | *(unset)* | External directory with loose data files (e.g., `../cliente_exe/data`) |
 
 ---
 
