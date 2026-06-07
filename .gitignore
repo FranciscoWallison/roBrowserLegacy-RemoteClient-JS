@@ -34,3 +34,9 @@ Thumbs.db
 .vscode/
 *.swp
 *.swo
+
+# ESRGAN upscaled cache (served by plugin, not source)
+/upscaled_cache/
+
+# GRF backup data (large, user-specific)
+/data_grf_backup/
