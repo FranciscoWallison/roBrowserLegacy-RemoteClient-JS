@@ -160,7 +160,10 @@ async function startServer() {
     // Handle Vite-style ?raw imports (must come before express.static)
     app.use(createRawImportMiddleware(roBrowserAbsPath));
 
-    app.use(express.static(roBrowserAbsPath));
+    // dotfiles: 'deny' keeps .git/ and .env out of reach. The doc root is the
+    // roBrowserLegacy checkout itself (the raw-import middleware above serves its
+    // src/ as ES modules), so without this the whole repository is downloadable.
+    app.use(express.static(roBrowserAbsPath, { dotfiles: 'deny' }));
   }
 
   // API routes (GRF file serving, search, etc.)

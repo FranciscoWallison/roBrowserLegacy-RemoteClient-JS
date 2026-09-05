@@ -44,6 +44,23 @@ function setCacheHeaders(res, filePath, content, cachedETag) {
   return null;
 }
 
+// Longest accepted /search pattern. The client sends RegExp.source, which is short
+// in practice; the cap keeps a hostile pattern from being arbitrarily complex.
+const MAX_FILTER_LENGTH = 256;
+
+// Ceiling on the raw bytes one /batch response may assemble in memory. Bodies are
+// base64-encoded on top of this, so the socket sees roughly 4/3 of it.
+const MAX_BATCH_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Wrap an async handler so a rejected promise reaches Express instead of
+ * surfacing as an unhandled rejection. Express 4 does not await handlers, so
+ * without this an async throw crashes the process.
+ */
+function asyncRoute(handler) {
+  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
+}
+
 // Check if client has valid cached version
 function checkConditionalRequest(req, etag) {
   const ifNoneMatch = req.headers['if-none-match'];
@@ -60,46 +77,70 @@ function checkConditionalRequest(req, etag) {
 
 router.post('/search', (req, res) => {
   const filter = req.body.filter;
-  if (!configs.CLIENT_ENABLESEARCH || !filter) {
+  if (!configs.CLIENT_ENABLESEARCH || typeof filter !== 'string' || filter.length === 0) {
     return res.status(400).send('Search feature is disabled or invalid filter');
   }
 
-  const regex = new RegExp(filter, 'i');
+  if (filter.length > MAX_FILTER_LENGTH) {
+    return res.status(400).send(`Filter too long (max ${MAX_FILTER_LENGTH} characters)`);
+  }
+
+  let regex;
+  try {
+    regex = new RegExp(filter, 'i');
+  } catch (e) {
+    return res.status(400).send('Invalid regular expression');
+  }
+
   const files = Client.search(regex);
   res.send(files.join('\n'));
 });
 
 // Batch file endpoint - fetch multiple files in a single request
-router.post('/batch', async (req, res) => {
+router.post('/batch', asyncRoute(async (req, res) => {
   const { files } = req.body;
   if (!Array.isArray(files) || files.length === 0 || files.length > 50) {
     return res.status(400).json({ error: 'Invalid files array (1-50 files)' });
   }
 
   const results = {};
+  let totalBytes = 0;
+  let truncated = false;
+
   await Promise.all(files.map(async (filePath) => {
+    if (typeof filePath !== 'string') return;
     try {
       const content = await Client.getFile(filePath);
-      if (content) {
-        results[filePath] = content.toString('base64');
+      if (!content) return;
+
+      // 50 files carry no size limit of their own; without this a caller can ask
+      // for the largest assets in the archive and pin them all in memory at once.
+      if (totalBytes + content.length > MAX_BATCH_BYTES) {
+        truncated = true;
+        return;
       }
+      totalBytes += content.length;
+      results[filePath] = content.toString('base64');
     } catch (e) {
       // Skip files that fail
     }
   }));
 
+  if (truncated) {
+    res.set('X-Batch-Truncated', '1');
+  }
   res.json(results);
-});
+}));
 
 // List files endpoint
-router.get('/list-files', async (req, res) => {
+router.get('/list-files', asyncRoute(async (req, res) => {
   const files = Client.listFiles();
   res.set('Cache-Control', 'public, max-age=300'); // Cache for 5 minutes
   res.json(files);
-});
+}));
 
 // Wildcard route for file serving
-router.get('/*', async (req, res) => {
+router.get('/*', asyncRoute(async (req, res) => {
   const filePath = req.params[0];
 
   // Serve index.html for root
@@ -148,6 +189,6 @@ router.get('/*', async (req, res) => {
   }
 
   res.send(fileContent);
-});
+}));
 
 module.exports = router;

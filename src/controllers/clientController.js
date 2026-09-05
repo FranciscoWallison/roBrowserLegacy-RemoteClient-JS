@@ -440,19 +440,35 @@ const Client = {
     return Array.from(allFiles);
   },
 
-  search(regex) {
+  /**
+   * Search the file index with a client-supplied regex.
+   *
+   * The pattern is attacker-controlled and the index holds millions of entries, so
+   * the scan is bounded by a wall-clock budget and a result cap. This limits how
+   * many regex evaluations a hostile pattern gets; it does not make an individual
+   * evaluation cheap, which is why routes/index.js also caps the pattern length.
+   */
+  search(regex, { limit = 10000, timeBudgetMs = 2000 } = {}) {
     if (!configs.CLIENT_ENABLESEARCH) {
       logger.warn('Search feature is disabled');
       return [];
     }
 
     const matchingFiles = new Set();
+    const deadline = Date.now() + timeBudgetMs;
 
     // Use index for faster search
     if (indexBuilt) {
+      let scanned = 0;
       for (const [, entry] of fileIndex) {
+        // Date.now() per entry would dominate the loop; sample it instead.
+        if ((++scanned & 0x3ff) === 0 && Date.now() > deadline) {
+          logger.warn(`Search aborted after ${scanned} entries: time budget exceeded`);
+          break;
+        }
         if (regex.test(entry.originalPath)) {
           matchingFiles.add(entry.originalPath);
+          if (matchingFiles.size >= limit) break;
         }
       }
       return Array.from(matchingFiles);
