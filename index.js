@@ -95,13 +95,28 @@ async function startServer() {
   }
 
   // ESRGAN upscaling middleware - serves upscaled assets from disk cache
-  // Plugin: @chicowall/robrowser-esrgan (external package)
+  // Plugin: @chicowall/robrowser-esrgan (optional dependency, installed from GitHub)
   let esrganInstance = null;
   if (ESRGAN_ENABLED) {
-    const createEsrganMiddleware = require('@chicowall/robrowser-esrgan');
-    const cachePath = path.resolve(__dirname, ESRGAN_CACHE_DIR);
-    esrganInstance = await createEsrganMiddleware({ cacheDir: cachePath, logger });
-    app.use(esrganInstance.middleware);
+    let createEsrganMiddleware = null;
+    try {
+      createEsrganMiddleware = require('@chicowall/robrowser-esrgan');
+    } catch (err) {
+      // Only swallow "the plugin itself is absent". A MODULE_NOT_FOUND coming from
+      // inside the plugin means a broken install, and must not be reported as "not installed".
+      const pluginAbsent =
+        err.code === 'MODULE_NOT_FOUND' && err.message.includes('@chicowall/robrowser-esrgan');
+      if (!pluginAbsent) throw err;
+      logger.warn('ESRGAN_ENABLED is set but @chicowall/robrowser-esrgan is not installed.');
+      logger.warn('Install it with: npm install github:FranciscoWallison/robrowser-esrgan');
+      logger.warn('Continuing without upscaling.\n');
+    }
+
+    if (createEsrganMiddleware) {
+      const cachePath = path.resolve(__dirname, ESRGAN_CACHE_DIR);
+      esrganInstance = await createEsrganMiddleware({ cacheDir: cachePath, logger });
+      app.use(esrganInstance.middleware);
+    }
   }
 
   // Validation status endpoint (JSON for frontend)
