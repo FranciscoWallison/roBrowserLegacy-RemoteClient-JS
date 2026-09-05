@@ -6,8 +6,8 @@
 	"scripts": {
 		"start": "node index.js",
 		"start:prod": "node start-prod.js",
-		"prepare": "node prepare.js",
-		"prepare:quick": "node prepare.js --quick",
+		"setup": "node prepare.js",
+		"setup:quick": "node prepare.js --quick",
 		"doctor": "node doctor.js",
 		"doctor:deep": "node doctor.js --deep",
 		"debug-grf": "node debug-grf.js",

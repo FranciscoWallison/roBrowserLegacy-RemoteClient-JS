@@ -9,8 +9,13 @@
  * 4. Optionally warms up cache
  *
  * Usage:
- *   npm run prepare          # Run all preparation steps
- *   npm run prepare -- --quick  # Quick mode (skip deep validation)
+ *   npm run setup            # Run all preparation steps
+ *   npm run setup:quick      # Quick mode (skip deep validation)
+ *
+ * Note: this is a manual command. It must NOT be named "prepare" in
+ * package.json -- npm treats that name as an install lifecycle hook and would
+ * run it on every "npm install", where the client files it checks for do not
+ * exist yet.
  */
 
 const fs = require('fs');

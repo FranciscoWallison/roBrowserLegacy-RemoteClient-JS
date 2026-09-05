@@ -141,10 +141,10 @@ Veja [Variaveis de Ambiente](#variaveis-de-ambiente) para todas as opcoes.
 
 ```bash
 # Preparacao completa (valida config, gera mapeamento de paths, constroi indice)
-npm run prepare
+npm run setup
 
 # Preparacao rapida (pula validacao profunda de encoding)
-npm run prepare:quick
+npm run setup:quick
 ```
 
 ### 5. Executar o Servidor
@@ -423,8 +423,8 @@ curl -X POST http://localhost:3338/search \
 |--------|-----------|
 | `npm start` | Iniciar o servidor (desenvolvimento, detalhado) |
 | `npm run start:prod` | Iniciar o servidor (producao, logs minimos) |
-| `npm run prepare` | Otimizacao completa pre-inicializacao |
-| `npm run prepare:quick` | Pre-inicializacao rapida (pula validacao profunda) |
+| `npm run setup` | Otimizacao completa pre-inicializacao |
+| `npm run setup:quick` | Pre-inicializacao rapida (pula validacao profunda) |
 | `npm run doctor` | Executar validacao de diagnostico |
 | `npm run doctor:deep` | Validacao profunda com verificacao de encoding |
 | `npm run debug-grf` | Debug do carregamento de arquivos GRF |
@@ -539,7 +539,7 @@ O servidor registra arquivos ausentes em `logs/missing-files.log`. Verifique:
 1. Verifique hit rate do cache: `curl http://localhost:3338/api/cache-stats`
 2. Aumente tamanho do cache via `.env` (veja [Variaveis de Ambiente](#variaveis-de-ambiente))
 3. Ative aquecimento de cache: `CACHE_WARM_UP=true`
-4. Execute `npm run prepare` para pre-construir indices
+4. Execute `npm run setup` para pre-construir indices
 
 ### Proxy WebSocket Nao Funciona
 
@@ -557,7 +557,7 @@ O servidor registra arquivos ausentes em `logs/missing-files.log`. Verifique:
 | GRF incompativel | Reempacote com GRF Builder (versao 0x200, sem DES) |
 | DATA.INI ausente | Crie `resources/DATA.INI` |
 | Problemas de encoding | Execute `npm run convert:encoding` |
-| Acesso lento a arquivos | Aumente cache, ative aquecimento, execute `npm run prepare` |
+| Acesso lento a arquivos | Aumente cache, ative aquecimento, execute `npm run setup` |
 | Conexao WS proxy recusada | Verifique se rAthena esta rodando, confira portas |
 | Arquivos estaticos nao servidos | Confira se `ROBROWSER_PATH` aponta para o diretorio do roBrowserLegacy |
 
