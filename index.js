@@ -98,21 +98,22 @@ async function startServer() {
   // Plugin: @chicowall/robrowser-esrgan (optional dependency, installed from GitHub)
   let esrganInstance = null;
   if (ESRGAN_ENABLED) {
-    let createEsrganMiddleware = null;
+    // Resolve before requiring: require.resolve() does not execute the module, so a
+    // MODULE_NOT_FOUND here can only mean the plugin itself is absent. Loading it is
+    // then left unguarded on purpose -- a broken install must surface as a real error,
+    // not be silently downgraded to "not installed".
+    let pluginPath = null;
     try {
-      createEsrganMiddleware = require('@chicowall/robrowser-esrgan');
+      pluginPath = require.resolve('@chicowall/robrowser-esrgan');
     } catch (err) {
-      // Only swallow "the plugin itself is absent". A MODULE_NOT_FOUND coming from
-      // inside the plugin means a broken install, and must not be reported as "not installed".
-      const pluginAbsent =
-        err.code === 'MODULE_NOT_FOUND' && err.message.includes('@chicowall/robrowser-esrgan');
-      if (!pluginAbsent) throw err;
+      if (err.code !== 'MODULE_NOT_FOUND') throw err;
       logger.warn('ESRGAN_ENABLED is set but @chicowall/robrowser-esrgan is not installed.');
       logger.warn('Install it with: npm install github:FranciscoWallison/robrowser-esrgan');
       logger.warn('Continuing without upscaling.\n');
     }
 
-    if (createEsrganMiddleware) {
+    if (pluginPath) {
+      const createEsrganMiddleware = require(pluginPath);
       const cachePath = path.resolve(__dirname, ESRGAN_CACHE_DIR);
       esrganInstance = await createEsrganMiddleware({ cacheDir: cachePath, logger });
       app.use(esrganInstance.middleware);
