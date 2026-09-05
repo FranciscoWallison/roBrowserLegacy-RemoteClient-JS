@@ -25,6 +25,16 @@ const IMPORT_ALIASES = {
   'jquery':  '/src/Vendors/jquery-1.9.1.js',
   'bson':    '/node_modules/bson/lib/bson.mjs',
   'lodash':  '/node_modules/lodash-es/lodash.default.js',
+  // Subpath export "./wasm" of granny-ro-js, used by src/Loaders/GR2Loader.js and
+  // the GR2 renderers. The browser cannot read package.json "exports", so the
+  // subpath is spelled out here.
+  'granny-ro-js/wasm': '/node_modules/granny-ro-js/dist/granny-ro.wasm.esm.js',
+  //
+  // NOT mappable: 'rijndael-js', imported by src/Utils/Rijndael.js. That package
+  // ships CommonJS only (main: index.js, no "module"/"exports", no type: module),
+  // so no static path makes it loadable as an ES module -- serving raw sources
+  // cannot substitute for the CJS-to-ESM conversion a bundler performs. Anything
+  // reaching Utils/Rijndael.js, which means the login flow, still needs a build.
   // Directory aliases (Vite resolve.alias)
   'App/':         '/src/App/',
   'Audio/':       '/src/Audio/',
@@ -114,8 +124,21 @@ function createRawImportMiddleware(rootDir) {
       const filePath = path.join(rootDir, req.path);
       const resolved = path.resolve(filePath);
 
-      // Security: prevent path traversal
-      if (!resolved.startsWith(path.resolve(rootDir))) {
+      // Security: prevent path traversal.
+      //
+      // The boundary separator matters. A bare startsWith(rootDir) also accepts
+      // any sibling whose name merely begins with it -- with rootDir pointing at
+      // roBrowserLegacy, "/../roBrowserLegacy-RemoteClient-JS/.env" passed, and
+      // the ?raw handler would have returned this server's own secrets wrapped in
+      // "export default".
+      const root = path.resolve(rootDir);
+      if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+        return res.status(403).send('Forbidden');
+      }
+
+      // ?raw turns any file into a JS module, so dot-entries (.env, .git/) must
+      // not be reachable through it.
+      if (req.path.split('/').some((segment) => segment.startsWith('.') && segment.length > 1)) {
         return res.status(403).send('Forbidden');
       }
 
