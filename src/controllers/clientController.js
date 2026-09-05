@@ -20,6 +20,41 @@ function decodeMojibake(str) {
   }
 }
 
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+
+/**
+ * Top-level directories the client is allowed to read from disk.
+ *
+ * These are the Ragnarok client asset trees (the same ones .gitignore excludes).
+ * The project root itself is NOT a document root: it also holds .env, .git/,
+ * logs/ and the server source, none of which may ever be reachable over HTTP.
+ */
+const SERVABLE_ROOTS = ['data', 'bgm', 'system', 'ai'];
+
+/**
+ * Resolve a client-supplied path inside `base`, or return null if it escapes.
+ *
+ * Rejects NUL bytes, absolute paths (which would make path.resolve discard the
+ * base entirely) and any sequence that climbs out of the base with "..".
+ */
+function resolveContained(base, requestPath) {
+  if (typeof requestPath !== 'string' || requestPath.length === 0) return null;
+  if (requestPath.includes('\0')) return null;
+
+  const resolved = path.resolve(base, requestPath);
+  const relative = path.relative(base, resolved);
+  if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+    return null;
+  }
+  return resolved;
+}
+
+/** True when a contained path sits under one of the servable asset trees. */
+function isServable(resolvedPath) {
+  const [top] = path.relative(PROJECT_ROOT, resolvedPath).split(/[\\/]/);
+  return SERVABLE_ROOTS.includes(top.toLowerCase());
+}
+
 // File content cache (5000 files, 1024MB max)
 const fileCache = new LRUCache(
   parseInt(process.env.CACHE_MAX_FILES) || 5000,
@@ -203,10 +238,11 @@ const Client = {
 
     // Normalize paths
     let grfFilePath = filePath.replace(/\//g, '\\');
-    let localPath = path.join(__dirname, '..', '..', filePath);
 
-    // Check local file system first
-    if (fs.existsSync(localPath)) {
+    // Check local file system first. The path comes straight from the client, so it
+    // is only read when it stays inside the project and lands in an asset tree.
+    const localPath = resolveContained(PROJECT_ROOT, filePath);
+    if (localPath && isServable(localPath) && fs.existsSync(localPath)) {
       try {
         const content = fs.readFileSync(localPath);
         fileCache.set(cacheKey, content);
@@ -219,8 +255,9 @@ const Client = {
     // Check DATA_OVERRIDE_PATH (external data dir with loose files not in GRF)
     if (process.env.DATA_OVERRIDE_PATH) {
       const relativePath = filePath.replace(/^data[\/\\]/, '');
-      const overridePath = path.resolve(__dirname, '..', '..', process.env.DATA_OVERRIDE_PATH, relativePath);
-      if (fs.existsSync(overridePath)) {
+      const overrideBase = path.resolve(PROJECT_ROOT, process.env.DATA_OVERRIDE_PATH);
+      const overridePath = resolveContained(overrideBase, relativePath);
+      if (overridePath && fs.existsSync(overridePath)) {
         try {
           const content = fs.readFileSync(overridePath);
           fileCache.set(cacheKey, content);
