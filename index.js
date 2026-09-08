@@ -95,13 +95,29 @@ async function startServer() {
   }
 
   // ESRGAN upscaling middleware - serves upscaled assets from disk cache
-  // Plugin: @chicowall/robrowser-esrgan (external package)
+  // Plugin: @chicowall/robrowser-esrgan (optional dependency, installed from GitHub)
   let esrganInstance = null;
   if (ESRGAN_ENABLED) {
-    const createEsrganMiddleware = require('@chicowall/robrowser-esrgan');
-    const cachePath = path.resolve(__dirname, ESRGAN_CACHE_DIR);
-    esrganInstance = await createEsrganMiddleware({ cacheDir: cachePath, logger });
-    app.use(esrganInstance.middleware);
+    // Resolve before requiring: require.resolve() does not execute the module, so a
+    // MODULE_NOT_FOUND here can only mean the plugin itself is absent. Loading it is
+    // then left unguarded on purpose -- a broken install must surface as a real error,
+    // not be silently downgraded to "not installed".
+    let pluginPath = null;
+    try {
+      pluginPath = require.resolve('@chicowall/robrowser-esrgan');
+    } catch (err) {
+      if (err.code !== 'MODULE_NOT_FOUND') throw err;
+      logger.warn('ESRGAN_ENABLED is set but @chicowall/robrowser-esrgan is not installed.');
+      logger.warn('Install it with: npm install github:FranciscoWallison/robrowser-esrgan');
+      logger.warn('Continuing without upscaling.\n');
+    }
+
+    if (pluginPath) {
+      const createEsrganMiddleware = require(pluginPath);
+      const cachePath = path.resolve(__dirname, ESRGAN_CACHE_DIR);
+      esrganInstance = await createEsrganMiddleware({ cacheDir: cachePath, logger });
+      app.use(esrganInstance.middleware);
+    }
   }
 
   // Validation status endpoint (JSON for frontend)
@@ -144,7 +160,10 @@ async function startServer() {
     // Handle Vite-style ?raw imports (must come before express.static)
     app.use(createRawImportMiddleware(roBrowserAbsPath));
 
-    app.use(express.static(roBrowserAbsPath));
+    // dotfiles: 'deny' keeps .git/ and .env out of reach. The doc root is the
+    // roBrowserLegacy checkout itself (the raw-import middleware above serves its
+    // src/ as ES modules), so without this the whole repository is downloadable.
+    app.use(express.static(roBrowserAbsPath, { dotfiles: 'deny' }));
   }
 
   // API routes (GRF file serving, search, etc.)

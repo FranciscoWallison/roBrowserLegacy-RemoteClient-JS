@@ -242,12 +242,26 @@ class StartupValidator {
       return { ok: false, reason: `Invalid signature: "${signature}"` };
     }
 
-    const tableOffset = header.readUInt32LE(30) >>> 0;
     const seed = header.readUInt32LE(34) >>> 0;
     const nFiles = header.readUInt32LE(38) >>> 0;
     const version = header.readUInt32LE(42) >>> 0;
 
-    const fileCount = Math.max(nFiles - seed - 7, 0);
+    // 0x200 and 0x300 lay out these fields differently. Mirrors the reference
+    // implementation in roBrowserLegacy, src/Loaders/GameFile.js.
+    //
+    // 0x300 stores the table offset as a 64-bit value spanning bytes 30..37 -- so
+    // what is the "seed" field in 0x200 is the high half of that offset here --
+    // and its file count is literal. 0x200 stores a 32-bit offset and encodes the
+    // count as nFiles - seed - 7.
+    let tableOffset;
+    let fileCount;
+    if (version === 0x300) {
+      tableOffset = Number(header.readBigUInt64LE(30));
+      fileCount = nFiles;
+    } else {
+      tableOffset = header.readUInt32LE(30) >>> 0;
+      fileCount = Math.max(nFiles - seed - 7, 0);
+    }
 
     return {
       ok: true,
@@ -404,7 +418,10 @@ class StartupValidator {
     const scanLimit =
       scanLimitEnv && /^\d+$/.test(scanLimitEnv) ? parseInt(scanLimitEnv, 10) : 0; // 0 = full
 
-    const fileTablePos = headerInfo.tableOffset + 46; // correct per spec
+    // 0x300 carries an extra unknown Int32 between the header and the file table
+    // (see roBrowserLegacy, src/Loaders/GameFile.js).
+    const fileTablePos =
+      headerInfo.tableOffset + 46 + (headerInfo.version === 0x300 ? 4 : 0);
     const table = this._inflateFileTable(fd, fileTablePos);
     if (!table.ok) {
       return {

@@ -144,10 +144,10 @@ See [Environment Variables](#environment-variables) for all options.
 
 ```bash
 # Full preparation (validates config, generates path mapping, builds index)
-npm run prepare
+npm run setup
 
 # Quick preparation (skips deep encoding validation)
-npm run prepare:quick
+npm run setup:quick
 ```
 
 ### 5. Run the Server
@@ -538,8 +538,8 @@ curl -X POST http://localhost:3338/search \
 |--------|-------------|
 | `npm start` | Start the server (development, verbose) |
 | `npm run start:prod` | Start the server (production, minimal logging) |
-| `npm run prepare` | Full pre-startup optimization |
-| `npm run prepare:quick` | Quick pre-startup (skip deep validation) |
+| `npm run setup` | Full pre-startup optimization |
+| `npm run setup:quick` | Quick pre-startup (skip deep validation) |
 | `npm run doctor` | Run diagnostic validation |
 | `npm run doctor:deep` | Deep validation with encoding check |
 | `npm run debug-grf` | Debug GRF file loading |
@@ -654,7 +654,7 @@ The server logs missing files to `logs/missing-files.log`. Check:
 1. Check cache hit rate: `curl http://localhost:3338/api/cache-stats`
 2. Increase cache size via `.env` (see [Environment Variables](#environment-variables))
 3. Enable cache warm-up: `CACHE_WARM_UP=true`
-4. Run `npm run prepare` to pre-build indexes
+4. Run `npm run setup` to pre-build indexes
 
 ### WebSocket Proxy Not Working
 
@@ -672,7 +672,7 @@ The server logs missing files to `logs/missing-files.log`. Check:
 | Incompatible GRF | Repack with GRF Builder (version 0x200, no DES) |
 | Missing DATA.INI | Create `resources/DATA.INI` |
 | Encoding issues | Run `npm run convert:encoding` |
-| Slow file access | Increase cache size, enable warm-up, run `npm run prepare` |
+| Slow file access | Increase cache size, enable warm-up, run `npm run setup` |
 | WS proxy connection refused | Check rAthena is running, verify target ports |
 | Static files not served | Check `ROBROWSER_PATH` points to roBrowserLegacy directory |
 
