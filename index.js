@@ -136,15 +136,18 @@ async function startServer() {
     });
   });
 
-  // Missing files endpoint
+  // Missing files endpoint (diagnostics: dev-only, hidden in production to avoid
+  // leaking file structure/index internals to unauthenticated callers)
   app.get('/api/missing-files', (req, res) => {
+    if (IS_PROD) return res.status(404).end();
     const Client = require('./src/controllers/clientController');
     const summary = Client.getMissingFilesSummary ? Client.getMissingFilesSummary() : { total: 0, files: [] };
     res.json(summary);
   });
 
-  // Cache stats endpoint
+  // Cache stats endpoint (diagnostics: dev-only, same rationale as above)
   app.get('/api/cache-stats', (req, res) => {
+    if (IS_PROD) return res.status(404).end();
     const Client = require('./src/controllers/clientController');
     res.json({
       cache: Client.getCacheStats ? Client.getCacheStats() : null,
