@@ -31,6 +31,7 @@ Com o **Modo Servidor Unificado**, este unico processo Node.js substitui tres se
   - [Auto-Extracao para Disco](#auto-extracao-para-disco)
 - [Variaveis de Ambiente](#variaveis-de-ambiente)
 - [Endpoints da API](#endpoints-da-api)
+- [Testes](#testes)
 - [Scripts NPM](#scripts-npm)
 - [Suporte a Encoding de Nomes Coreanos](#suporte-a-encoding-de-nomes-coreanos)
 - [Estrutura de Diretorios](#estrutura-de-diretorios)
@@ -417,12 +418,35 @@ curl -X POST http://localhost:3338/search \
 
 ---
 
+## Testes
+
+```bash
+npm test
+```
+
+A suite roda no test runner embutido do Node — sem framework para instalar. **Nao precisa do cliente
+Ragnarok**: os fixtures GRF em `tests/fixtures/` somam menos de 2 KB e sao arquivos sinteticos sob
+licenca MIT (ver `tests/fixtures/README.md`). O CI roda o mesmo comando em todo pull request.
+
+O que ela cobre, na ordem do que doeria mais se quebrasse:
+
+- **Contencao de caminho** em `Client.getFile()` — o funil de `POST /batch` e da rota curinga `GET /*`.
+  Traversal, caminhos absolutos, byte NUL, e a raiz do repositorio nao ser doc-root, mais o caminho
+  feliz para a contencao nao virar bloqueio geral.
+- **Contencao no middleware de raw import**, tanto no handler `?raw` quanto no reescritor de imports.
+- **Parsing de header GRF** 0x200 e 0x300, contra headers sinteticos e arquivos reais de cada versao,
+  mais os tres casos de rejeicao.
+- **Gating em producao** dos endpoints de diagnostico. Sao assercoes estruturais sobre o `index.js`, nao
+  chamadas HTTP — os handlers vivem dentro de `startServer()`, que exige um GRF real. O arquivo diz isso
+  no topo e registra o resultado obtido com o servidor no ar.
+
 ## Scripts NPM
 
 | Script | Descricao |
 |--------|-----------|
 | `npm start` | Iniciar o servidor (desenvolvimento, detalhado) |
 | `npm run start:prod` | Iniciar o servidor (producao, logs minimos) |
+| `npm test` | Executar a suite de regressao (nao precisa do cliente Ragnarok) |
 | `npm run setup` | Otimizacao completa pre-inicializacao |
 | `npm run setup:quick` | Pre-inicializacao rapida (pula validacao profunda) |
 | `npm run doctor` | Executar validacao de diagnostico |

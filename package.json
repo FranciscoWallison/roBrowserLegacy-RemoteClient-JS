@@ -6,6 +6,7 @@
 	"scripts": {
 		"start": "node index.js",
 		"start:prod": "node start-prod.js",
+		"test": "node --test \"tests/**/*.test.js\"",
 		"setup": "node prepare.js",
 		"setup:quick": "node prepare.js --quick",
 		"doctor": "node doctor.js",
