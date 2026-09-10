@@ -483,9 +483,9 @@ When `CLIENT_AUTOEXTRACT=true` (default in `src/config/configs.js`), files extra
 | Method | Route | Description |
 |--------|-------|-------------|
 | GET | `/` | Returns `index.html` |
-| GET | `/api/health` | Full system status (validation, cache, index, missing files) |
-| GET | `/api/cache-stats` | Cache and index statistics |
-| GET | `/api/missing-files` | List of files not found |
+| GET | `/api/health` | Liveness. Full detail (validation, cache, index, missing files) in development; status and counts only in production |
+| GET | `/api/cache-stats` | Cache and index statistics. Development only — 404 in production |
+| GET | `/api/missing-files` | List of files not found. Development only — 404 in production |
 | GET | `/*` | Serves any client file (from disk, cache, or GRF) |
 | POST | `/search` | Search files by regex filter |
 | GET | `/list-files` | List all available files |

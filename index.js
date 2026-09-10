@@ -120,15 +120,32 @@ async function startServer() {
     }
   }
 
-  // Validation status endpoint (JSON for frontend)
+  // Validation status endpoint (JSON for frontend).
+  //
+  // Unlike the two diagnostic endpoints below this one cannot 404 in production:
+  // load balancers and container health checks call it. So it stays reachable but
+  // answers with liveness only, withholding the reconnaissance detail -- absolute
+  // paths, GRF names, Node/npm versions, cache and index internals -- that the
+  // full payload carries.
   app.get('/api/health', (req, res) => {
+    const status = validationStatus || {};
+
+    if (IS_PROD) {
+      return res.json({
+        timestamp: status.timestamp,
+        status: status.status,
+        hasWarnings: status.hasWarnings,
+        summary: status.summary,
+      });
+    }
+
     const Client = require('./src/controllers/clientController');
     const missingInfo = Client.getMissingFilesSummary ? Client.getMissingFilesSummary() : null;
     const cacheStats = Client.getCacheStats ? Client.getCacheStats() : null;
     const indexStats = Client.getIndexStats ? Client.getIndexStats() : null;
 
     res.json({
-      ...validationStatus,
+      ...status,
       missingFiles: missingInfo,
       cache: cacheStats,
       index: indexStats,
@@ -136,15 +153,18 @@ async function startServer() {
     });
   });
 
-  // Missing files endpoint
+  // Missing files endpoint (diagnostics: dev-only, hidden in production to avoid
+  // leaking file structure/index internals to unauthenticated callers)
   app.get('/api/missing-files', (req, res) => {
+    if (IS_PROD) return res.status(404).end();
     const Client = require('./src/controllers/clientController');
     const summary = Client.getMissingFilesSummary ? Client.getMissingFilesSummary() : { total: 0, files: [] };
     res.json(summary);
   });
 
-  // Cache stats endpoint
+  // Cache stats endpoint (diagnostics: dev-only, same rationale as above)
   app.get('/api/cache-stats', (req, res) => {
+    if (IS_PROD) return res.status(404).end();
     const Client = require('./src/controllers/clientController');
     res.json({
       cache: Client.getCacheStats ? Client.getCacheStats() : null,

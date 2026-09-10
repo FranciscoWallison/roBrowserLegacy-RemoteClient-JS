@@ -368,9 +368,9 @@ Quando `CLIENT_AUTOEXTRACT=true` (padrao em `src/config/configs.js`), arquivos e
 | Metodo | Rota | Descricao |
 |--------|------|-----------|
 | GET | `/` | Retorna `index.html` |
-| GET | `/api/health` | Status completo do sistema (validacao, cache, indice, arquivos ausentes) |
-| GET | `/api/cache-stats` | Estatisticas de cache e indice |
-| GET | `/api/missing-files` | Lista de arquivos nao encontrados |
+| GET | `/api/health` | Liveness. Detalhe completo (validacao, cache, indice, arquivos ausentes) em desenvolvimento; so status e contagens em producao |
+| GET | `/api/cache-stats` | Estatisticas de cache e indice. Apenas em desenvolvimento — 404 em producao |
+| GET | `/api/missing-files` | Lista de arquivos nao encontrados. Apenas em desenvolvimento — 404 em producao |
 | GET | `/*` | Serve qualquer arquivo do client (do disco, cache ou GRF) |
 | POST | `/search` | Busca arquivos por filtro regex |
 | GET | `/list-files` | Lista todos os arquivos disponiveis |
