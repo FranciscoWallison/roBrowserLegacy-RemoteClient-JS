@@ -34,6 +34,7 @@ With **Unified Server Mode**, this single Node.js process replaces three separat
   - [Auto-Extract to Disk](#auto-extract-to-disk)
 - [Environment Variables](#environment-variables)
 - [API Endpoints](#api-endpoints)
+- [Testing](#testing)
 - [NPM Scripts](#npm-scripts)
 - [Korean Filename Encoding Support](#korean-filename-encoding-support)
 - [Directory Structure](#directory-structure)
@@ -532,12 +533,35 @@ curl -X POST http://localhost:3338/search \
 
 ---
 
+## Testing
+
+```bash
+npm test
+```
+
+The suite runs on Node's built-in test runner — no test framework to install. It needs **no Ragnarok
+client**: the GRF fixtures under `tests/fixtures/` total under 2 KB and are synthetic, MIT-licensed
+archives (see `tests/fixtures/README.md`). CI runs the same command on every pull request.
+
+What it covers, in order of what would hurt most if it broke:
+
+- **Path containment** in `Client.getFile()` — the funnel for `POST /batch` and the `GET /*` wildcard.
+  Traversal, absolute paths, NUL bytes, and the repository root not being a document root, plus the
+  happy path so containment does not become a blanket deny.
+- **Containment in the raw-import middleware**, both the `?raw` handler and the import rewriter.
+- **GRF header parsing** for 0x200 and 0x300, against synthetic headers and real archives of each
+  version, plus the three rejection cases.
+- **Production gating** of the diagnostic endpoints. These are structural assertions over `index.js`
+  rather than HTTP calls — the handlers live inside `startServer()`, which needs a real GRF to reach.
+  The file says so at the top and records the live-server results.
+
 ## NPM Scripts
 
 | Script | Description |
 |--------|-------------|
 | `npm start` | Start the server (development, verbose) |
 | `npm run start:prod` | Start the server (production, minimal logging) |
+| `npm test` | Run the regression suite (no Ragnarok client required) |
 | `npm run setup` | Full pre-startup optimization |
 | `npm run setup:quick` | Quick pre-startup (skip deep validation) |
 | `npm run doctor` | Run diagnostic validation |
