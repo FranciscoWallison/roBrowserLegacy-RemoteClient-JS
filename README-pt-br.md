@@ -242,9 +242,18 @@ Quando nao definido, usa os destinos localhost padrao (`127.0.0.1:6900/6121/5121
 
 **Configuracao do roBrowserLegacy** (`Config.local.js`):
 ```js
+remoteClient: 'http://127.0.0.1:3338/',  // OBRIGATORIO - veja abaixo
 socketProxy: 'ws://127.0.0.1:3338/ws/'  // modo unificado
 // socketProxy: 'ws://127.0.0.1:5999/'  // modo separado (legado)
 ```
+
+**O `remoteClient` nao e opcional.** O roBrowserLegacy vem com
+`remoteClient: 'https://grf.robrowser.com/'` como padrao
+(`applications/pwa/Config.js`), e esse unico valor decide de onde vem cada
+asset. Sem defini-lo, o cliente carrega tudo do CDN publico em silencio — o jogo
+roda, nada parece quebrado, e este servidor nunca e usado. A barra final e
+obrigatoria: o cliente concatena direto (`remoteClient + url` e
+`remoteClient + 'batch'`).
 
 ### Servidor de Arquivos Estaticos Embutido
 
@@ -569,9 +578,10 @@ O servidor registra arquivos ausentes em `logs/missing-files.log`. Verifique:
 
 1. Verifique `ENABLE_WSPROXY=true` no `.env`
 2. Confira se `Config.local.js` tem `socketProxy: 'ws://127.0.0.1:3338/ws/'`
-3. Garanta que o rAthena esta rodando (login:6900, char:6121, map:5121)
-4. Verifique os logs do servidor por mensagens `WS proxy blocked connection`
-5. Para Docker/rAthena remoto: defina `WS_ALLOWED_TARGETS` no `.env` (veja [Variaveis de Ambiente](#variaveis-de-ambiente))
+3. Assets vindo de `grf.robrowser.com` em vez deste servidor: falta `remoteClient` no `Config.local.js`
+4. Garanta que o rAthena esta rodando (login:6900, char:6121, map:5121)
+5. Verifique os logs do servidor por mensagens `WS proxy blocked connection`
+6. Para Docker/rAthena remoto: defina `WS_ALLOWED_TARGETS` no `.env` (veja [Variaveis de Ambiente](#variaveis-de-ambiente))
 
 ### Problemas Comuns
 

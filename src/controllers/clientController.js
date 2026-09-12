@@ -4,6 +4,7 @@ const Grf = require('./grfController');
 const configs = require('../config/configs');
 const LRUCache = require('../utils/LRUCache');
 const logger = require('../utils/logger');
+const searchPool = require('../utils/searchPool');
 const iconv = require('iconv-lite');
 
 /**
@@ -64,6 +65,14 @@ const fileCache = new LRUCache(
 // GRF file index for O(1) lookups: filename → { grfIndex, originalPath }
 let fileIndex = new Map();
 let indexBuilt = false;
+
+/**
+ * Memoized result of listFiles(). Rebuilding it walks every index entry into a Set -- 67 ms for a
+ * full data.grf -- and both /list-files and every search need it. Identity matters too: the search
+ * worker keeps its copy keyed on this array, and a fresh array each call would re-send 9 MB per
+ * query. Cleared whenever the index is rebuilt.
+ */
+let cachedFileList = null;
 
 // Path mapping for encoding conversion (loaded from path-mapping.json if exists)
 let pathMapping = null;
@@ -197,6 +206,10 @@ const Client = {
     if (mojibakeCount > 0) {
       logger.debug(`Added ${mojibakeCount} mojibake path mappings for roBrowser compatibility`);
     }
+
+    // The file list and the search worker both cache what the index holds.
+    cachedFileList = null;
+    searchPool.invalidate();
 
     // Add path mapping entries to index
     if (pathMapping && pathMapping.paths) {
@@ -422,11 +435,14 @@ const Client = {
   listFiles() {
     // Use index if available for faster response
     if (indexBuilt) {
+      if (cachedFileList) return cachedFileList;
+
       const uniqueFiles = new Set();
       for (const [, entry] of fileIndex) {
         uniqueFiles.add(entry.originalPath);
       }
-      return Array.from(uniqueFiles);
+      cachedFileList = Array.from(uniqueFiles);
+      return cachedFileList;
     }
 
     // Fallback to GRF iteration
@@ -443,50 +459,29 @@ const Client = {
   /**
    * Search the file index with a client-supplied regex.
    *
-   * The pattern is attacker-controlled and the index holds millions of entries, so
-   * the scan is bounded by a wall-clock budget and a result cap. This limits how
-   * many regex evaluations a hostile pattern gets; it does not make an individual
-   * evaluation cheap, which is why routes/index.js also caps the pattern length.
+   * The pattern is attacker-controlled, and a catastrophic one cannot be interrupted mid-evaluation:
+   * `^(.+)+#$` against a 30-character path takes seconds and doubles with each extra character,
+   * while GRF paths run 40-60. Checking a time budget between candidates does not help, because the
+   * cost is inside a single RegExp.test() call.
+   *
+   * So the matching runs in a worker thread that the caller can terminate on overrun. This keeps the
+   * event loop free: the process stays responsive while a hostile pattern burns, and the worker is
+   * replaced for the next query.
+   *
+   * @returns {Promise<string[]>}
+   * @throws if the query exceeds its deadline -- the caller should answer 503.
    */
-  search(regex, { limit = 10000, timeBudgetMs = 2000 } = {}) {
+  async search(regex, { limit = 10000, timeBudgetMs = 2000 } = {}) {
     if (!configs.CLIENT_ENABLESEARCH) {
       logger.warn('Search feature is disabled');
       return [];
     }
 
-    const matchingFiles = new Set();
-    const deadline = Date.now() + timeBudgetMs;
-
-    // Use index for faster search
-    if (indexBuilt) {
-      let scanned = 0;
-      for (const [, entry] of fileIndex) {
-        // Date.now() per entry would dominate the loop; sample it instead.
-        if ((++scanned & 0x3ff) === 0 && Date.now() > deadline) {
-          logger.warn(`Search aborted after ${scanned} entries: time budget exceeded`);
-          break;
-        }
-        if (regex.test(entry.originalPath)) {
-          matchingFiles.add(entry.originalPath);
-          if (matchingFiles.size >= limit) break;
-        }
-      }
-      return Array.from(matchingFiles);
-    }
-
-    // Fallback
-    for (const grf of this.grfs) {
-      if (grf && grf.listFiles) {
-        const files = grf.listFiles();
-        files.forEach(file => {
-          if (regex.test(file)) {
-            matchingFiles.add(file);
-          }
-        });
-      }
-    }
-
-    return Array.from(matchingFiles);
+    const candidates = this.listFiles();
+    return searchPool.search(regex.source, regex.flags, candidates, {
+      limit,
+      timeoutMs: timeBudgetMs,
+    });
   },
 
   /**
