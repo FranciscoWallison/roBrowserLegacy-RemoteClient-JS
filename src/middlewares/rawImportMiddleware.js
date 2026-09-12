@@ -115,30 +115,39 @@ function rewriteImports(source) {
  * @param {string} rootDir - Absolute path to the roBrowserLegacy directory
  * @returns {function} Express middleware
  */
+/**
+ * Resolve a request path inside `rootDir`, or return null if it escapes.
+ *
+ * The boundary separator is the whole point. A bare startsWith(rootDir) also accepts any sibling
+ * whose name merely begins with it -- and with rootDir pointing at roBrowserLegacy, that sibling is
+ * roBrowserLegacy-RemoteClient-JS, this server's own checkout.
+ */
+function resolveInside(rootDir, requestPath) {
+  const root = path.resolve(rootDir);
+  const resolved = path.resolve(path.join(rootDir, requestPath));
+  if (resolved !== root && !resolved.startsWith(root + path.sep)) return null;
+  return resolved;
+}
+
+/** True when any path segment is a dot-entry (.env, .git, ...). */
+function hasDotSegment(requestPath) {
+  return requestPath.split('/').some((segment) => segment.startsWith('.') && segment.length > 1);
+}
+
 function createRawImportMiddleware(rootDir) {
   return function rawImportMiddleware(req, res, next) {
     if (req.method !== 'GET') return next();
 
     // ── 1. Handle ?raw imports ──
     if ('raw' in req.query) {
-      const filePath = path.join(rootDir, req.path);
-      const resolved = path.resolve(filePath);
-
-      // Security: prevent path traversal.
-      //
-      // The boundary separator matters. A bare startsWith(rootDir) also accepts
-      // any sibling whose name merely begins with it -- with rootDir pointing at
-      // roBrowserLegacy, "/../roBrowserLegacy-RemoteClient-JS/.env" passed, and
-      // the ?raw handler would have returned this server's own secrets wrapped in
-      // "export default".
-      const root = path.resolve(rootDir);
-      if (resolved !== root && !resolved.startsWith(root + path.sep)) {
+      const resolved = resolveInside(rootDir, req.path);
+      if (!resolved) {
         return res.status(403).send('Forbidden');
       }
 
       // ?raw turns any file into a JS module, so dot-entries (.env, .git/) must
       // not be reachable through it.
-      if (req.path.split('/').some((segment) => segment.startsWith('.') && segment.length > 1)) {
+      if (hasDotSegment(req.path)) {
         return res.status(403).send('Forbidden');
       }
 
@@ -166,10 +175,11 @@ function createRawImportMiddleware(rootDir) {
 
     // ── 2. Rewrite imports in JS files under /src/ and /node_modules/ ──
     if (req.path.endsWith('.js') && (req.path.startsWith('/src/') || req.path.startsWith('/node_modules/'))) {
-      const filePath = path.join(rootDir, req.path);
-      const resolved = path.resolve(filePath);
-
-      if (!resolved.startsWith(path.resolve(rootDir))) {
+      // Same containment as the ?raw branch. req.path must start with /src/ or /node_modules/ to
+      // reach here, but "/src/../../<sibling>/src/routes/index.js" satisfies that prefix and still
+      // resolves outside the root, which served this server's own source verbatim.
+      const resolved = resolveInside(rootDir, req.path);
+      if (!resolved) {
         return res.status(403).send('Forbidden');
       }
 
