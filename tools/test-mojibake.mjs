@@ -8,14 +8,15 @@
  *  node tools/test-mojibake.mjs
  */
 
-import {
-  isMojibake,
-  fixMojibake,
-  toMojibake,
-  normalizeFilename,
-  normalizeEncodingPath,
-  hasIconvLite
-} from "@chicowall/grf-loader";
+// Load the CommonJS build on purpose.
+//
+// The package's ESM build resolves iconv-lite through a bundler shim that needs a global `require`.
+// Under `node -e` one exists and everything appears to work; inside a real .mjs there is none, the
+// shim throws, iconv-lite is null, and isMojibake/fixMojibake/toMojibake silently become identity
+// functions. That made `npm run convert:encoding` produce an empty mapping while reporting success,
+// and made the validators flag encoding errors in archives the server reads perfectly.
+import { createRequire } from "module";
+const { isMojibake, fixMojibake, toMojibake, normalizeFilename, normalizeEncodingPath, hasIconvLite } = createRequire(import.meta.url)("@chicowall/grf-loader");
 
 console.log("=".repeat(70));
 console.log("Mojibake Detection & Fixing Test");
