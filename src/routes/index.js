@@ -75,7 +75,7 @@ function checkConditionalRequest(req, etag) {
   await Client.init();
 })();
 
-router.post('/search', (req, res) => {
+router.post('/search', asyncRoute(async (req, res) => {
   const filter = req.body.filter;
   if (!configs.CLIENT_ENABLESEARCH || typeof filter !== 'string' || filter.length === 0) {
     return res.status(400).send('Search feature is disabled or invalid filter');
@@ -92,9 +92,15 @@ router.post('/search', (req, res) => {
     return res.status(400).send('Invalid regular expression');
   }
 
-  const files = Client.search(regex);
-  res.send(files.join('\n'));
-});
+  try {
+    const files = await Client.search(regex);
+    res.send(files.join('\n'));
+  } catch (err) {
+    // The pattern overran its deadline and the worker was terminated. This is the expected
+    // outcome for a catastrophic pattern, not a server fault worth a 500.
+    res.status(503).send('Search timed out: pattern too expensive');
+  }
+}));
 
 // Batch file endpoint - fetch multiple files in a single request
 router.post('/batch', asyncRoute(async (req, res) => {
