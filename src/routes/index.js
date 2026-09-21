@@ -70,10 +70,9 @@ function checkConditionalRequest(req, etag) {
   return false;
 }
 
-// Initialize client on startup
-(async () => {
-  await Client.init();
-})();
+// The GRF index is built by index.js, which awaits it before listening. It used to be started here, as a
+// side effect of requiring this module -- which also made the app impossible to import without parsing
+// every configured GRF.
 
 router.post('/search', asyncRoute(async (req, res) => {
   const filter = req.body.filter;

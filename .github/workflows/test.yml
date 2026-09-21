@@ -9,23 +9,32 @@ jobs:
   test:
     runs-on: ubuntu-latest
 
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the floor declared in package.json "engines"; 24 is the version in .nvmrc.
+        node-version: [22, 24]
+
+    name: node ${{ matrix.node-version }}
+
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
-          node-version: 22
+          node-version: ${{ matrix.node-version }}
+          cache: npm
 
-      # Not `npm ci`: package-lock.json is gitignored, so there is no lockfile to install from.
-      # The ESRGAN plugin is an optionalDependency fetched from GitHub and is not needed here.
+      # The ESRGAN plugin is an optionalDependency fetched from GitHub; no test exercises it.
       - name: Install dependencies
-        run: npm install --omit=optional
+        run: npm ci --omit=optional
 
       - name: Syntax check every source file
         run: |
           set -e
           for f in $(git ls-files '*.js' '*.mjs'); do node --check "$f"; done
 
-      # The suite needs no Ragnarok client: the GRF fixtures under tests/fixtures total under 2 KB.
+      # Needs no Ragnarok client: tests build synthetic GRFs (tests/helpers/grfBuilder.js), and the
+      # fixtures under tests/fixtures total under 2 KB.
       - name: Run tests
         run: npm test

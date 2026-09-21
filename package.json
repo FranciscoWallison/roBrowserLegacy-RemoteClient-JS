@@ -3,6 +3,9 @@
 	"version": "1.0.0",
 	"description": "roBrowser and Express server unified project",
 	"main": "index.js",
+	"engines": {
+		"node": ">=22.12"
+	},
 	"scripts": {
 		"start": "node index.js",
 		"start:prod": "node start-prod.js",

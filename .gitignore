@@ -10,8 +10,8 @@
 /dist/
 /.yarn
 
-# Lock files
-package-lock.json
+# Lock files. package-lock.json is committed: this is an application, not a library, and without it
+# every install resolves a different dependency tree and CI cannot use `npm ci`.
 yarn.lock
 
 # Environment
