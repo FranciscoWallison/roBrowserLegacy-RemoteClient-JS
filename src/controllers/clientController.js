@@ -119,9 +119,20 @@ const Client = {
   AutoExtract: configs.CLIENT_AUTOEXTRACT,
   missingFiles: [],
 
-  async init() {
+  /**
+   * Load the GRFs listed in DATA.INI and build the file index.
+   *
+   * GRF entries are resolved relative to the DATA.INI's own directory. With the default location
+   * (<root>/resources/DATA.INI) that is exactly <root>/resources/<name>, as before; the option exists
+   * so tests can point the server at synthetic archives instead of a real client.
+   *
+   * @param {{ dataIniPath?: string }} [options]
+   */
+  async init({ dataIniPath } = {}) {
     const startTime = Date.now();
-    this.data_ini = path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+    this.data_ini = dataIniPath
+      || path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+    const grfDir = path.dirname(this.data_ini);
 
     if (!fs.existsSync(this.data_ini)) {
       logger.error('DATA.INI file not found:', this.data_ini);
@@ -140,7 +151,7 @@ const Client = {
 
     this.grfs = await Promise.all(
       dataIni.data.filter(Boolean).map(async grfPath => {
-        const grf = new Grf(path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, grfPath));
+        const grf = new Grf(path.join(grfDir, grfPath));
         await grf.load();
         return grf;
       })
