@@ -59,7 +59,8 @@ With **Unified Server Mode**, this single Node.js process replaces three separat
 - **Gzip/Deflate compression** for text-based responses
 - **Korean filename encoding support** (CP949/EUC-KR) with mojibake detection/fixing
 - **Path mapping system** for encoding conversion (Korean path → GRF path)
-- **Auto-extraction** — saves GRF files to disk for faster subsequent access
+- **Auto-extraction** (opt-in) — saves GRF files to disk for faster subsequent access
+- **Client folders anywhere** — `BGM/`, `System/`, `AI/` and loose `data/` files read from a client installed elsewhere, and GRFs by absolute path
 - **Missing files logging** with notifications
 - **REST API** for health checks, cache stats, and file search
 - Cross-Origin Resource Sharing (CORS)
@@ -127,6 +128,23 @@ resources/
 ├── rdata.grf         # Additional GRF file
 └── *.grf             # Other GRF files
 ```
+
+`DATA.INI` lists the archives in its `[Data]` section, by number:
+
+```ini
+[Data]
+0=custom.grf
+1=data.grf
+2=D:\RO\rdata.grf
+```
+
+- **The lowest number wins** when two archives hold the same file, as in roBrowser itself.
+- A path may be **absolute**, so a GRF can stay on another drive or in the client's own folder; a relative one is
+  read from `resources/`.
+- Any extension is loaded, `.gpf` patches included. Lines starting with `;` or `#` are comments.
+
+The server, the startup validation, `npm run setup` and the encoding tools all read the file the same way
+(`src/utils/dataIni.js`).
 
 **GRF Compatibility:** This project works with GRF versions **0x200** and **0x300** without DES encryption.
 
@@ -362,15 +380,29 @@ The server works normally without the plugin installed.
 
 Some Ragnarok Online data files (e.g., `msgstringtable.txt`, `skillnametable.txt`, Lua configs) exist as loose files in the client's `data/` folder and are **not** packed inside the GRF. The `DATA_OVERRIDE_PATH` setting lets the server find and serve these files without copying them into the project.
 
+Music, fonts and AI scripts are not in any GRF either. `BGM_PATH`, `SYSTEM_PATH` and `AI_PATH` point at the
+client's `BGM/`, `System/` and `AI/` folders, so they are served without copying them in or linking them. They are
+read-only, and confined by real path: a junction or symlink inside one cannot lead a request out of it.
+
+```env
+DATA_OVERRIDE_PATH=../cliente_exe/data
+BGM_PATH=../cliente_exe/BGM
+SYSTEM_PATH=../cliente_exe/System
+AI_PATH=../cliente_exe/AI
+```
+
 **Lookup order when a file is requested:**
 
 ```
 1. Memory cache (LRU)
-2. Local data/ directory (auto-extracted files)
-3. DATA_OVERRIDE_PATH (external loose files)  ← NEW
-4. GRF archive lookup
-5. 404 Not Found
+2. The project's own data/, BGM/, System/ or AI/ folder
+3. BGM_PATH / SYSTEM_PATH / AI_PATH, for requests under BGM/, System/ or AI/
+4. DATA_OVERRIDE_PATH, for requests under data/
+5. GRF archives, in DATA.INI order
+6. 404 Not Found
 ```
+
+A folder named in `.env` must exist: the startup validation reports it as an error otherwise.
 
 #### Configuration
 
@@ -379,7 +411,7 @@ Some Ragnarok Online data files (e.g., `msgstringtable.txt`, `skillnametable.txt
 DATA_OVERRIDE_PATH=../cliente_exe/data
 ```
 
-The path is relative to the project root. When not set, the server skips this step and behaves as before.
+Paths are absolute or relative to the project root. When one is not set, the server skips that step.
 
 #### Typical files served via DATA_OVERRIDE_PATH
 
@@ -395,6 +427,9 @@ The path is relative to the project root. When not set, the server skips this st
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `DATA_OVERRIDE_PATH` | *(unset)* | Path to external directory with loose data files not in GRF |
+| `BGM_PATH` | *(unset)* | The client's `BGM/` folder, served for requests under `BGM/` |
+| `SYSTEM_PATH` | *(unset)* | The client's `System/` folder (fonts, Lua tables), served for requests under `System/` |
+| `AI_PATH` | *(unset)* | The client's `AI/` folder, served for requests under `AI/` |
 
 ---
 
@@ -469,7 +504,16 @@ Static game assets receive proper cache headers for browser-side caching:
 
 ### Auto-Extract to Disk
 
-When `CLIENT_AUTOEXTRACT=true` (default in `src/config/configs.js`), files extracted from GRF archives are saved to the local filesystem. On subsequent requests, files are served from disk instead of re-extracting from the GRF — significantly faster for repeated access.
+**Off by default.** With `CLIENT_AUTOEXTRACT=true`, every file read from a GRF is also written into the project's
+`data/` folder, and later requests read it from disk.
+
+It used to be always on. Two problems made it opt-in: the copies are read **before** `DATA_OVERRIDE_PATH`, so they
+hide the translated files it provides (seen on a real setup: four translated tables replaced by the originals from
+the GRF), and any anonymous request triggers a write to disk. The LRU cache already avoids re-extracting hot files.
+
+When on, it only writes inside `data/`, `BGM/`, `System/` or `AI/`, and on Windows never under a name the system
+would reinterpret (`nul.txt`, `com1.spr`, `x.txt:stream`, a trailing dot or space). If you turn it off after
+running with it, the copies already in `data/` are still served: move them out.
 
 ---
 
@@ -493,6 +537,8 @@ When `CLIENT_AUTOEXTRACT=true` (default in `src/config/configs.js`), files extra
 | `ESRGAN_ENABLED` | `false` | Enable ESRGAN upscaling plugin (requires `@chicowall/robrowser-esrgan`) |
 | `ESRGAN_CACHE_DIR` | `./upscaled_cache` | Path to the pre-built upscaled asset cache |
 | `DATA_OVERRIDE_PATH` | *(unset)* | External directory with loose data files (e.g., `../cliente_exe/data`) |
+| `BGM_PATH` / `SYSTEM_PATH` / `AI_PATH` | *(unset)* | The client's `BGM/`, `System/`, `AI/` folders, read-only ([details](#external-data-directory)) |
+| `CLIENT_AUTOEXTRACT` | `false` | Write files read from a GRF into `data/` ([details](#auto-extract-to-disk)) |
 
 ---
 
@@ -598,6 +644,10 @@ matching its own idea of a request.
 | `search-redos.test.js` | A catastrophic pattern is cut off at the deadline without blocking the server |
 | `range.test.js` | Byte ranges for audio: 206, 416, `If-Range`, never compressed |
 | `mojibake.test.js` | The two spellings of a Korean name and the way back to Korean |
+| `data-ini.test.js` | DATA.INI: section, comments, priority order, repeated numbers, absolute paths — and the server loading archives that way |
+| `asset-dirs.test.js` | `BGM_PATH`, `SYSTEM_PATH`, `AI_PATH`: served, case-insensitive, ranges, no escape by `..` or by a junction |
+| `autoextract.test.js` | AutoExtract off by default; when on, writing only into the asset folders, never under a name Windows would reinterpret |
+| `validator-paths.test.js` | The startup validation from any working directory, without npm on the PATH, with the server's DATA.INI reader |
 | `wsproxy.test.js` | The WebSocket proxy against a fake rAthena: relay, pre-connect buffering, allowlist, a real Close frame, cleanup |
 | `grf-loader.test.js` | The GRF loader decodes Korean names with iconv-lite — it would not if the package were imported as an ES module (see `src/utils/grfLoader.js`) |
 | `env.test.js` | `.env` is read from the project root whatever the current directory, is optional, and never overrides a variable already set |
@@ -709,10 +759,12 @@ roBrowserLegacy-RemoteClient-JS/
 │   ├── routes/
 │   │   └── index.js            # Asset serving, search, /batch, /list-files
 │   ├── utils/
+│   │   ├── dataIni.js          # The one DATA.INI parser
 │   │   ├── grfLoader.js        # @chicowall/grf-loader through its CommonJS build
 │   │   ├── logger.js           # Logger utility (respects NODE_ENV)
 │   │   ├── LRUCache.js         # LRU cache implementation
 │   │   ├── mojibake.js         # The two spellings of Korean names, and back to Korean
+│   │   ├── safePath.js         # File names Windows would reinterpret (AutoExtract)
 │   │   ├── searchPool.js       # Runs searches in a worker, with a deadline
 │   │   └── searchWorker.js     # The search worker
 │   └── validators/
@@ -735,7 +787,7 @@ roBrowserLegacy-RemoteClient-JS/
 │   └── *.grf                   # Client GRF files
 │
 ├── BGM/                        # Game background music
-├── data/                       # Client data files (auto-extracted)
+├── data/                       # Loose client data files (and AutoExtract copies, when on)
 ├── System/                     # Client system files
 └── AI/                         # AI scripts for homunculus/mercenaries
 ```

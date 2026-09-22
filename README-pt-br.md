@@ -22,6 +22,7 @@ Com o **Modo Servidor Unificado**, este unico processo Node.js substitui tres se
   - [Proxy WebSocket Embutido](#proxy-websocket-embutido)
   - [Servidor de Arquivos Estaticos Embutido](#servidor-de-arquivos-estaticos-embutido)
   - [Voltar ao Modo Separado](#voltar-ao-modo-separado)
+  - [Pastas do Client Fora do Projeto](#pastas-do-client-fora-do-projeto)
 - [Recursos de Performance](#recursos-de-performance)
   - [Cache LRU de Arquivos](#cache-lru-de-arquivos)
   - [Aquecimento de Cache](#aquecimento-de-cache)
@@ -56,7 +57,8 @@ Com o **Modo Servidor Unificado**, este unico processo Node.js substitui tres se
 - **Compressao Gzip/Deflate** para respostas baseadas em texto
 - **Suporte a encoding de nomes coreanos** (CP949/EUC-KR) com deteccao/correcao de mojibake
 - **Sistema de mapeamento de paths** para conversao de encoding (path coreano → path GRF)
-- **Auto-extracao** — salva arquivos GRF no disco para acesso mais rapido nas proximas vezes
+- **Auto-extracao** (opcional) — salva arquivos GRF no disco para acesso mais rapido nas proximas vezes
+- **Pastas do client em qualquer lugar** — `BGM/`, `System/`, `AI/` e arquivos soltos de `data/` lidos de um client instalado em outra pasta, e GRFs por caminho absoluto
 - **Log de arquivos ausentes** com notificacoes
 - **API REST** para health checks, estatisticas de cache e busca de arquivos
 - Cross-Origin Resource Sharing (CORS)
@@ -124,6 +126,23 @@ resources/
 ├── rdata.grf         # Arquivo GRF adicional
 └── *.grf             # Outros arquivos GRF
 ```
+
+O `DATA.INI` lista os arquivos na secao `[Data]`, por numero:
+
+```ini
+[Data]
+0=custom.grf
+1=data.grf
+2=D:\RO\rdata.grf
+```
+
+- **O menor numero vence** quando dois arquivos tem o mesmo arquivo, como no proprio roBrowser.
+- O caminho pode ser **absoluto**, entao um GRF pode ficar em outro disco ou na pasta do proprio client; um
+  relativo e lido de `resources/`.
+- Qualquer extensao e carregada, inclusive patches `.gpf`. Linhas comecando com `;` ou `#` sao comentarios.
+
+O servidor, a validacao de inicializacao, o `npm run setup` e as ferramentas de encoding leem o arquivo do mesmo
+jeito (`src/utils/dataIni.js`).
 
 **Compatibilidade de GRF:** Este projeto funciona com GRF versoes **0x200** e **0x300** sem criptografia DES.
 
@@ -284,6 +303,34 @@ socketProxy: 'ws://127.0.0.1:5999/'
 
 Depois inicie o wsproxy e live-server separadamente como antes.
 
+### Pastas do Client Fora do Projeto
+
+Alguns arquivos do Ragnarok nao estao em GRF nenhum: arquivos soltos de `data/` (`msgstringtable.txt`, tabelas
+traduzidas), a musica (`BGM/`), as fontes (`System/`) e os scripts de AI (`AI/`). Em vez de copiar essas pastas para
+dentro do projeto ou criar links, aponte para elas no `.env`:
+
+```env
+DATA_OVERRIDE_PATH=../cliente_exe/data
+BGM_PATH=../cliente_exe/BGM
+SYSTEM_PATH=../cliente_exe/System
+AI_PATH=../cliente_exe/AI
+```
+
+Os caminhos sao absolutos ou relativos a raiz do projeto. As pastas sao so de leitura e confinadas pelo caminho
+real: uma junction ou symlink dentro delas nao leva uma requisicao para fora. Uma pasta citada no `.env` precisa
+existir — a validacao de inicializacao acusa erro se nao existir.
+
+**Ordem de busca de um arquivo:**
+
+```
+1. Cache em memoria (LRU)
+2. A pasta data/, BGM/, System/ ou AI/ do proprio projeto
+3. BGM_PATH / SYSTEM_PATH / AI_PATH, para requisicoes em BGM/, System/ ou AI/
+4. DATA_OVERRIDE_PATH, para requisicoes em data/
+5. Os GRFs, na ordem do DATA.INI
+6. 404 Not Found
+```
+
 ---
 
 ## Recursos de Performance
@@ -357,7 +404,17 @@ Assets estaticos do jogo recebem headers de cache apropriados para cache no nave
 
 ### Auto-Extracao para Disco
 
-Quando `CLIENT_AUTOEXTRACT=true` (padrao em `src/config/configs.js`), arquivos extraidos dos GRFs sao salvos no sistema de arquivos local. Nas proximas requisicoes, os arquivos sao servidos do disco ao inves de re-extrair do GRF — significativamente mais rapido para acessos repetidos.
+**Desligada por padrao.** Com `CLIENT_AUTOEXTRACT=true`, todo arquivo lido de um GRF tambem e gravado na pasta
+`data/` do projeto, e as proximas requisicoes o leem do disco.
+
+Antes era sempre ligada. Dois problemas a tornaram opcional: as copias sao lidas **antes** do `DATA_OVERRIDE_PATH`,
+entao escondem os arquivos traduzidos que ele fornece (visto num ambiente real: quatro tabelas traduzidas trocadas
+pelas originais do GRF), e qualquer requisicao anonima provoca uma gravacao em disco. O cache LRU ja evita
+re-extrair os arquivos mais usados.
+
+Quando ligada, so grava dentro de `data/`, `BGM/`, `System/` ou `AI/`, e no Windows nunca com um nome que o sistema
+reinterpretaria (`nul.txt`, `com1.spr`, `x.txt:stream`, ponto ou espaco no final). Se voce desligar depois de usar,
+as copias que ja estao em `data/` continuam sendo servidas: tire-as de la.
 
 ---
 
@@ -378,6 +435,9 @@ Quando `CLIENT_AUTOEXTRACT=true` (padrao em `src/config/configs.js`), arquivos e
 | `WS_ALLOWED_TARGETS` | `127.0.0.1:6900,...` | Pares `host:port` separados por virgula para allowlist do proxy WS |
 | `ENABLE_STATIC_SERVE` | `true` | Servir arquivos estaticos do roBrowserLegacy (substitui live-server) |
 | `ROBROWSER_PATH` | `../roBrowserLegacy` | Caminho para o diretorio do roBrowserLegacy |
+| `DATA_OVERRIDE_PATH` | *(vazio)* | Pasta com arquivos soltos de `data/` que nao estao no GRF ([detalhes](#pastas-do-client-fora-do-projeto)) |
+| `BGM_PATH` / `SYSTEM_PATH` / `AI_PATH` | *(vazio)* | As pastas `BGM/`, `System/`, `AI/` do client, so leitura ([detalhes](#pastas-do-client-fora-do-projeto)) |
+| `CLIENT_AUTOEXTRACT` | `false` | Gravar em `data/` os arquivos lidos de um GRF ([detalhes](#auto-extracao-para-disco)) |
 
 ---
 
@@ -483,6 +543,10 @@ para o cliente real, e nao so quando deixa de bater com a propria ideia de requi
 | `search-redos.test.js` | Um padrao catastrofico e cortado no prazo sem travar o servidor |
 | `range.test.js` | Faixas de bytes para audio: 206, 416, `If-Range`, nunca comprimido |
 | `mojibake.test.js` | As duas grafias de um nome coreano e o caminho de volta para o coreano |
+| `data-ini.test.js` | DATA.INI: secao, comentarios, ordem de prioridade, numero repetido, caminho absoluto — e o servidor carregando os GRFs desse jeito |
+| `asset-dirs.test.js` | `BGM_PATH`, `SYSTEM_PATH`, `AI_PATH`: servidos, sem diferenciar maiusculas, com faixas de bytes, sem fuga por `..` nem por junction |
+| `autoextract.test.js` | AutoExtract desligado por padrao; ligado, grava so nas pastas de assets e nunca com nome que o Windows reinterpretaria |
+| `validator-paths.test.js` | A validacao de inicializacao de qualquer diretorio, sem npm no PATH, com o leitor de DATA.INI do servidor |
 | `wsproxy.test.js` | O proxy WebSocket contra um rAthena falso: repasse, buffer antes da conexao, allowlist, Close frame de verdade, limpeza |
 | `grf-loader.test.js` | O loader de GRF decodifica nomes coreanos com o iconv-lite — o que nao aconteceria se o pacote fosse importado como ES module (ver `src/utils/grfLoader.js`) |
 | `env.test.js` | O `.env` e lido da raiz do projeto qualquer que seja o diretorio atual, e opcional, e nunca sobrescreve uma variavel ja definida |
@@ -594,10 +658,12 @@ roBrowserLegacy-RemoteClient-JS/
 │   ├── routes/
 │   │   └── index.js            # Servir assets, busca, /batch, /list-files
 │   ├── utils/
+│   │   ├── dataIni.js          # O unico leitor de DATA.INI
 │   │   ├── grfLoader.js        # @chicowall/grf-loader pelo build CommonJS
 │   │   ├── logger.js           # Utilitario de log (respeita NODE_ENV)
 │   │   ├── LRUCache.js         # Implementacao do cache LRU
 │   │   ├── mojibake.js         # As duas grafias de nomes coreanos, e a volta para o coreano
+│   │   ├── safePath.js         # Nomes de arquivo que o Windows reinterpretaria (AutoExtract)
 │   │   ├── searchPool.js       # Roda as buscas numa worker, com prazo
 │   │   └── searchWorker.js     # A worker da busca
 │   └── validators/
@@ -620,7 +686,7 @@ roBrowserLegacy-RemoteClient-JS/
 │   └── *.grf                   # Arquivos GRF do client
 │
 ├── BGM/                        # Musicas de fundo do jogo
-├── data/                       # Arquivos de dados do client (auto-extraidos)
+├── data/                       # Arquivos soltos do client (e copias do AutoExtract, se ligado)
 ├── System/                     # Arquivos de sistema do client
 └── AI/                         # Scripts de IA para homunculos/mercenarios
 ```

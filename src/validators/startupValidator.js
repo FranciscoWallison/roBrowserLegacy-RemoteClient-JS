@@ -1,13 +1,33 @@
-import { execSync } from "node:child_process";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { TextDecoder } from "node:util";
 import zlib from "node:zlib";
 import configs from "../config/configs.js";
+import { readDataIni } from "../utils/dataIni.js";
 import grfLoader, { GrfNode } from "../utils/grfLoader.js";
 
 const require = createRequire(import.meta.url);
+
+// Every path is checked against the project folder, not the current directory: `node
+// /srv/remote-client/index.js` started from anywhere else used to report resources/ and node_modules/
+// as missing and refuse to boot.
+const { PROJECT_ROOT } = configs;
+
+/** The entries of a directory, or null when it is missing, not a directory or not readable. */
+function readableDir(p) {
+  try {
+    return fs.readdirSync(p);
+  } catch {
+    return null;
+  }
+}
+
+/** A path for messages: relative to the project when inside it, absolute otherwise. */
+function display(p) {
+  const relative = path.relative(PROJECT_ROOT, p);
+  return relative && !relative.startsWith("..") && !path.isAbsolute(relative) ? relative : p;
+}
 
 /**
  * Startup validation system
@@ -41,36 +61,28 @@ class StartupValidator {
   }
 
   validateNodeVersion() {
-    try {
-      const nodeVersion = process.version;
-      const npmVersion = execSync("npm --version", { encoding: "utf-8" }).trim();
+    const nodeVersion = process.version;
+    // npm's version when started through an npm script. It used to come from running `npm --version`,
+    // which failed -- and, being an error, stopped the server -- wherever npm is not on the PATH, as
+    // under a process manager or in a container image that runs `node index.js` directly.
+    const npmVersion = process.env.npm_config_user_agent?.match(/npm\/(\S+)/)?.[1] ?? null;
 
-      this.validationResults.nodeVersion = {
-        node: nodeVersion,
-        npm: npmVersion,
-        valid: true,
-      };
+    this.validationResults.nodeVersion = { node: nodeVersion, npm: npmVersion, valid: true };
+    this.addInfo(`Node.js: ${nodeVersion}`);
+    if (npmVersion) this.addInfo(`npm: ${npmVersion}`);
 
-      this.addInfo(`Node.js: ${nodeVersion}`);
-      this.addInfo(`npm: ${npmVersion}`);
-
-      // The minimum in package.json "engines"; CI runs on 22 and 24.
-      const [major, minor] = nodeVersion.replace("v", "").split(".").map((n) => parseInt(n, 10));
-      if (major < 22 || (major === 22 && minor < 12)) {
-        this.addWarning(`Node.js ${nodeVersion} is older than the supported minimum, v22.12`);
-      }
-
-      return true;
-    } catch (error) {
-      this.addError(`Failed to check Node.js/npm version: ${error.message}`);
-      this.validationResults.nodeVersion = { valid: false, error: error.message };
-      return false;
+    // The minimum in package.json "engines"; CI runs on 22 and 24.
+    const [major, minor] = nodeVersion.replace("v", "").split(".").map((n) => parseInt(n, 10));
+    if (major < 22 || (major === 22 && minor < 12)) {
+      this.addWarning(`Node.js ${nodeVersion} is older than the supported minimum, v22.12`);
     }
+
+    return true;
   }
 
   validateDependencies() {
-    const nodeModulesPath = path.join(process.cwd(), "node_modules");
-    const packageJsonPath = path.join(process.cwd(), "package.json");
+    const nodeModulesPath = path.join(PROJECT_ROOT, "node_modules");
+    const packageJsonPath = path.join(PROJECT_ROOT, "package.json");
 
     if (!fs.existsSync(packageJsonPath)) {
       this.addError("package.json not found!");
@@ -80,7 +92,9 @@ class StartupValidator {
 
     if (!fs.existsSync(nodeModulesPath)) {
       const nodeVersion = this.validationResults.nodeVersion;
-      const versionInfo = nodeVersion ? `\n  Node.js: ${nodeVersion.node}\n  npm: ${nodeVersion.npm}` : "";
+      const versionInfo = nodeVersion
+        ? `\n  Node.js: ${nodeVersion.node}` + (nodeVersion.npm ? `\n  npm: ${nodeVersion.npm}` : "")
+        : "";
       this.addError(`Dependencies not installed!\nRun: npm install${versionInfo}`);
       this.validationResults.dependencies = { installed: false, reason: "node_modules missing" };
       return false;
@@ -110,20 +124,19 @@ class StartupValidator {
    * Also diagnoses non-UTF-8 filenames (for path encoding conversion/fallback).
    */
   async validateGrfs() {
-    const resourcesPath = path.join(process.cwd(), "resources");
-    const dataIniPath = path.join(resourcesPath, "DATA.INI");
+    const dataIniPath = configs.DATA_INI_PATH;
 
     if (!fs.existsSync(dataIniPath)) {
-      this.addError("resources/DATA.INI not found!");
+      this.addError(`${display(dataIniPath)} not found!`);
       this.validationResults.grfs = { valid: false, reason: "DATA.INI missing" };
       return false;
     }
 
-    const dataIniContent = fs.readFileSync(dataIniPath, "utf-8");
-    const grfFiles = this.parseDataINI(dataIniContent);
+    // The same reader the server loads archives with: same order, and absolute paths allowed.
+    const { entries, grfPaths } = readDataIni(dataIniPath);
 
-    if (grfFiles.length === 0) {
-      this.addError("No GRF files found in resources/DATA.INI!");
+    if (entries.length === 0) {
+      this.addError(`No GRF files found in ${display(dataIniPath)}!`);
       this.validationResults.grfs = { valid: false, reason: "No GRF files in DATA.INI" };
       return false;
     }
@@ -131,19 +144,19 @@ class StartupValidator {
     const grfResults = [];
     let hasInvalidGrf = false;
 
-    for (const grfFile of grfFiles) {
-      const grfPath = path.join(resourcesPath, grfFile);
+    for (const [i, grfFile] of entries.entries()) {
+      const grfPath = grfPaths[i];
 
       if (!fs.existsSync(grfPath)) {
-        this.addError(`GRF not found: ${grfFile}`);
-        grfResults.push({ file: grfFile, exists: false });
+        this.addError(`GRF not found: ${grfFile}` + (grfFile === grfPath ? "" : ` (${grfPath})`));
+        grfResults.push({ file: grfFile, path: grfPath, exists: false });
         hasInvalidGrf = true;
         continue;
       }
 
       const validation = await this.validateGrfFormat(grfPath);
 
-      grfResults.push({ file: grfFile, exists: true, ...validation });
+      grfResults.push({ file: grfFile, path: grfPath, exists: true, ...validation });
 
       if (!validation.valid) {
         let errorMsg = `Incompatible GRF: ${grfFile}\n`;
@@ -185,42 +198,10 @@ class StartupValidator {
     this.validationResults.grfs = {
       valid: !hasInvalidGrf,
       files: grfResults,
-      count: grfFiles.length,
+      count: entries.length,
     };
 
     return !hasInvalidGrf;
-  }
-
-  parseDataINI(content) {
-    const lines = content.split("\n");
-    const grfFiles = [];
-    let inDataSection = false;
-
-    for (let line of lines) {
-      line = line.trim();
-
-      if (!line || line.startsWith(";") || line.startsWith("#")) continue;
-
-      if (line.toLowerCase() === "[data]") {
-        inDataSection = true;
-        continue;
-      }
-
-      if (line.startsWith("[") && line.endsWith("]")) {
-        inDataSection = false;
-        continue;
-      }
-
-      if (inDataSection && line.includes("=")) {
-        const parts = line.split("=");
-        const value = parts.slice(1).join("=");
-        if (value && value.trim().toLowerCase().endsWith(".grf")) {
-          grfFiles.push(value.trim());
-        }
-      }
-    }
-
-    return grfFiles;
   }
 
   // -------------------- GRF helpers (0x200/0x300 + compacted/zlib) --------------------
@@ -635,7 +616,7 @@ class StartupValidator {
    * Deep encoding validation using @chicowall/grf-loader
    * Validates ALL files in GRFs and returns detailed encoding statistics
    */
-  async validateEncodingDeep(grfFiles) {
+  async validateEncodingDeep(grfPaths) {
     // These functions may or may not be exported depending on version
     const isMojibake = grfLoader.isMojibake || (() => false);
     const fixMojibake = grfLoader.fixMojibake || ((s) => s);
@@ -646,8 +627,6 @@ class StartupValidator {
       require.resolve("iconv-lite");
       iconvAvailable = true;
     } catch {}
-
-    const resourcesPath = path.join(process.cwd(), "resources");
 
     const results = {
       iconvAvailable,
@@ -672,8 +651,8 @@ class StartupValidator {
       return false;
     };
 
-    for (const grfFile of grfFiles) {
-      const grfPath = path.join(resourcesPath, grfFile);
+    for (const grfPath of grfPaths) {
+      const grfFile = path.basename(grfPath);
       if (!fs.existsSync(grfPath)) continue;
 
       let fd = null;
@@ -776,24 +755,40 @@ class StartupValidator {
   }
 
   validateRequiredFiles() {
+    const resourcesDir = path.dirname(configs.DATA_INI_PATH);
+
+    // A folder named in .env must exist: it was asked for explicitly. Otherwise the folder inside the
+    // project is optional, as before.
+    const clientFolder = (folder, key, variable) => {
+      const configured = variable === "DATA_OVERRIDE_PATH"
+        ? (process.env.DATA_OVERRIDE_PATH ? path.resolve(PROJECT_ROOT, process.env.DATA_OVERRIDE_PATH) : null)
+        : configs.ASSET_DIRS[key];
+      return configured
+        ? { path: configured, type: "dir", required: true, name: `${variable} (${configured})` }
+        : folder && { path: path.join(PROJECT_ROOT, folder), type: "dir", required: false, name: `${folder}/ folder` };
+    };
+
     const checks = [
-      { path: "resources", type: "dir", required: true, name: "resources/ folder" },
-      { path: "resources/DATA.INI", type: "file", required: true, name: "DATA.INI file" },
-      { path: "BGM", type: "dir", required: false, name: "BGM/ folder" },
-      { path: "data", type: "dir", required: false, name: "data/ folder" },
-      { path: "System", type: "dir", required: false, name: "System/ folder" },
-    ];
+      { path: resourcesDir, type: "dir", required: true, name: `${display(resourcesDir)}/ folder` },
+      { path: configs.DATA_INI_PATH, type: "file", required: true, name: "DATA.INI file" },
+      clientFolder("BGM", "bgm", "BGM_PATH"),
+      { path: path.join(PROJECT_ROOT, "data"), type: "dir", required: false, name: "data/ folder" },
+      clientFolder(null, null, "DATA_OVERRIDE_PATH"),
+      clientFolder("System", "system", "SYSTEM_PATH"),
+      clientFolder(null, "ai", "AI_PATH"),
+    ].filter(Boolean);
 
     let hasErrors = false;
     const results = [];
 
     for (const check of checks) {
-      const fullPath = path.join(process.cwd(), check.path);
-      const exists = fs.existsSync(fullPath);
+      const fullPath = check.path;
+      // A folder must be a readable directory; a file of that name does not count.
+      const exists = check.type === "dir" ? readableDir(fullPath) !== null : fs.existsSync(fullPath);
 
       if (check.type === "dir") {
         const isEmpty = exists
-          ? fs.readdirSync(fullPath).filter((f) => !f.startsWith("add-")).length === 0
+          ? readableDir(fullPath).filter((f) => !f.startsWith("add-")).length === 0
           : true;
 
         results.push({ ...check, exists, isEmpty });
@@ -875,8 +870,8 @@ class StartupValidator {
       this.addInfo(`NODE_ENV: ${nodeEnv}`);
     }
 
-    const envPath = path.join(process.cwd(), ".env");
-    const envExamplePath = path.join(process.cwd(), ".env.example");
+    const envPath = path.join(PROJECT_ROOT, ".env");
+    const envExamplePath = path.join(PROJECT_ROOT, ".env.example");
     if (!fs.existsSync(envPath) && fs.existsSync(envExamplePath)) {
       this.addWarning(".env file not found! Copy .env.example to .env and configure it");
     }
@@ -930,13 +925,13 @@ class StartupValidator {
 
     // Deep encoding validation (optional, slower)
     if (deepEncoding && this.validationResults.grfs?.files) {
-      const grfFiles = this.validationResults.grfs.files
+      const grfPaths = this.validationResults.grfs.files
         .filter((g) => g.exists && g.valid)
-        .map((g) => g.file);
+        .map((g) => g.path);
 
-      if (grfFiles.length > 0) {
+      if (grfPaths.length > 0) {
         console.log("🔍 Running deep encoding validation...\n");
-        const encodingResults = await this.validateEncodingDeep(grfFiles);
+        const encodingResults = await this.validateEncodingDeep(grfPaths);
 
         // Add encoding warnings
         if (encodingResults.summary.mojibakeDetected > 0) {
