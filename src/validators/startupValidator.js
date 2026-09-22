@@ -54,9 +54,10 @@ class StartupValidator {
       this.addInfo(`Node.js: ${nodeVersion}`);
       this.addInfo(`npm: ${npmVersion}`);
 
-      const majorVersion = parseInt(nodeVersion.replace("v", "").split(".")[0], 10);
-      if (majorVersion < 14) {
-        this.addWarning(`Node.js version ${nodeVersion} may be too old. Recommended: v14 or newer`);
+      // The minimum in package.json "engines"; CI runs on 22 and 24.
+      const [major, minor] = nodeVersion.replace("v", "").split(".").map((n) => parseInt(n, 10));
+      if (major < 22 || (major === 22 && minor < 12)) {
+        this.addWarning(`Node.js ${nodeVersion} is older than the supported minimum, v22.12`);
       }
 
       return true;
