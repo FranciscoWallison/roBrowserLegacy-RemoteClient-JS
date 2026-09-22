@@ -34,7 +34,9 @@ With **Unified Server Mode**, this single Node.js process replaces three separat
   - [Auto-Extract to Disk](#auto-extract-to-disk)
 - [Environment Variables](#environment-variables)
 - [API Endpoints](#api-endpoints)
+  - [File Search](#file-search)
 - [Testing](#testing)
+  - [Validating a Change End to End](#validating-a-change-end-to-end)
 - [NPM Scripts](#npm-scripts)
 - [Korean Filename Encoding Support](#korean-filename-encoding-support)
 - [Directory Structure](#directory-structure)
@@ -52,7 +54,8 @@ With **Unified Server Mode**, this single Node.js process replaces three separat
 - **LRU file cache** with configurable size (up to 5000 files / 1GB+)
 - **Cache warm-up** — pre-loads frequently used assets on startup
 - **GRF file indexing** — O(1) file lookups across all GRF archives
-- **HTTP cache headers** (ETag, Cache-Control) for browser caching
+- **HTTP cache headers** (ETag, Cache-Control) for browser caching, and byte ranges for audio
+- **File search** for the map, model and GRF viewers, answering exactly as a locally loaded archive would
 - **Gzip/Deflate compression** for text-based responses
 - **Korean filename encoding support** (CP949/EUC-KR) with mojibake detection/fixing
 - **Path mapping system** for encoding conversion (Korean path → GRF path)
@@ -454,6 +457,7 @@ Static game assets receive proper cache headers for browser-side caching:
 | ETag | MD5 hash | Content validation |
 | Cache-Control | `max-age=86400, immutable` | 1-day cache for game assets |
 | 304 Not Modified | — | Skip re-download if unchanged |
+| Accept-Ranges / 206 | `bytes` | `.mp3`, `.wav` and `.ogg` only: lets the `<audio>` element that plays BGM seek. `If-Range` is honoured |
 
 ### Response Compression
 
@@ -472,7 +476,9 @@ When `CLIENT_AUTOEXTRACT=true` (default in `src/config/configs.js`), files extra
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `PORT` | `3338` | Server port |
-| `CLIENT_PUBLIC_URL` | `http://localhost:8000` | Allowed CORS origin |
+| `CLIENT_PUBLIC_URL` | `http://localhost:8000` | Allowed CORS origin, added to the local dev ports (8000, 8080, 3338 on `localhost` and `127.0.0.1`) |
+| `CORS_ORIGINS` | *(unset)* | Comma-separated list of allowed origins. When set it is the **complete** list — the defaults above are not added — and `*` allows any origin |
+| `CLIENT_ENABLESEARCH` | `true` | `false` turns [file search](#file-search) off; it then answers with an empty list |
 | `NODE_ENV` | `development` | Node environment |
 | `CACHE_MAX_FILES` | `5000` | Max files in LRU cache |
 | `CACHE_MAX_MEMORY_MB` | `1024` | Max cache memory (MB) |
@@ -497,7 +503,8 @@ When `CLIENT_AUTOEXTRACT=true` (default in `src/config/configs.js`), files extra
 | GET | `/api/cache-stats` | Cache and index statistics. Development only — 404 in production |
 | GET | `/api/missing-files` | List of files not found. Development only — 404 in production |
 | GET | `/*` | Serves any client file (from disk, cache, or GRF) |
-| POST | `/search` | Search files by regex filter |
+| POST | `/` | [File search](#file-search), where roBrowser sends it |
+| POST | `/search` | The same search, at the route this server used before |
 | GET | `/list-files` | List all available files |
 | WS | `/ws/{host}:{port}` | WebSocket proxy to TCP (when `ENABLE_WSPROXY=true`) |
 
@@ -513,10 +520,8 @@ curl http://localhost:3338/api/cache-stats
 # Check missing files
 curl http://localhost:3338/api/missing-files
 
-# Search files by regex
-curl -X POST http://localhost:3338/search \
-  -H "Content-Type: application/json" \
-  -d '{"filter": "sprite.*\\.spr"}'
+# Search the GRF names, the way the Map Viewer lists maps
+curl -X POST http://localhost:3338/ --data-urlencode 'filter=data\\([^\0]+\.rsw)'
 ```
 
 **Cache stats response example:**
@@ -540,6 +545,30 @@ curl -X POST http://localhost:3338/search \
 }
 ```
 
+### File Search
+
+Only the viewers search — the Map, Model, STR, Granny and GRF viewers; the game itself never does. The
+client's `FileManager.search` posts `filter=<RegExp.source>` to the remote client's **root URL** and splits
+the answer on newlines. With an archive loaded locally it runs the same regex over the archive's name
+table instead, and the viewers cannot tell the two apart — so the server answers exactly as that local
+search would:
+
+- **The regex runs over the name table, not over paths.** Every name in a GRF, followed by a NUL, one
+  character per byte — the client's `table.data`. Flags are always `gi` (the client drops the ones it
+  had), and the answer is each **matched substring**, once. That is what lets the GRF Viewer list a folder:
+  it matches `data\\texture\\([^(\0|\\)]+)` and gets back each entry directly under it, not every path
+  below it.
+- **The body is the name bytes as stored in the GRF**, labelled `text/plain; charset=ISO-8859-1`. The
+  client reads it that way and reuses each line as a path, so every name the search returns can be fetched.
+- **Every failure is an empty `200`**: search disabled, a missing filter, a pattern that does not compile
+  or is longer than 256 characters, a pattern that runs past the 2-second deadline. The client ignores the
+  status and would read an error message as file names. The `X-Search-Error` header says what happened.
+- **No cap on results.** A search for every name in a full `data.grf` returns all 205,404 in under a
+  second.
+
+A pattern is attacker-controlled, and one like `^(.+)+#$` backtracks exponentially. The search runs in a
+worker thread that is terminated at the deadline, so the server stays responsive while it burns.
+
 ---
 
 ## Testing
@@ -548,21 +577,49 @@ curl -X POST http://localhost:3338/search \
 npm test
 ```
 
-The suite runs on Node's built-in test runner — no test framework to install. It needs **no Ragnarok
-client**: the GRF fixtures under `tests/fixtures/` total under 2 KB and are synthetic, MIT-licensed
-archives (see `tests/fixtures/README.md`). CI runs the same command on every pull request.
+The suite runs on Node's built-in test runner — no test framework to install — and needs **no Ragnarok
+client**. Tests build small GRF archives on the fly (`tests/helpers/grfBuilder.js`), including Korean
+names stored as CP949 bytes; the header fixtures under `tests/fixtures/` are synthetic and under 2 KB.
+CI runs the same command on Node 22 and 24 for every pull request.
 
-What it covers, in order of what would hurt most if it broke:
+The HTTP tests start the real app (`createApp()`) on a random port and talk to it the way roBrowser does.
+`tests/helpers/roBrowser.js` reproduces the client's own code — the URL `FileManager.getHTTP` builds, the
+request `FileManager.search` sends, the pattern each viewer builds, the answer a locally loaded archive
+gives — so a test fails when the server stops working for the real client, not only when it stops
+matching its own idea of a request.
 
-- **Path containment** in `Client.getFile()` — the funnel for `POST /batch` and the `GET /*` wildcard.
-  Traversal, absolute paths, NUL bytes, and the repository root not being a document root, plus the
-  happy path so containment does not become a blanket deny.
-- **Containment in the raw-import middleware**, both the `?raw` handler and the import rewriter.
-- **GRF header parsing** for 0x200 and 0x300, against synthetic headers and real archives of each
-  version, plus the three rejection cases.
-- **Production gating** of the diagnostic endpoints. These are structural assertions over `index.js`
-  rather than HTTP calls — the handlers live inside `startServer()`, which needs a real GRF to reach.
-  The file says so at the top and records the live-server results.
+| File | What it covers |
+|------|----------------|
+| `http.test.js` | Serving assets: case-insensitive lookup, Korean names in every spelling the client sends, 404, ETag/304, CORS and `CORS_ORIGINS`, `/batch`, path containment on the wire, diagnostics gated in production, the static mount |
+| `search.test.js` | The search contract: for every viewer's pattern, the answer is identical to a locally loaded archive's; every returned name can be fetched; Latin-1 bytes; an empty `200` on every failure |
+| `search-scale.test.js` | No cap on the number of results |
+| `search-redos.test.js` | A catastrophic pattern is cut off at the deadline without blocking the server |
+| `range.test.js` | Byte ranges for audio: 206, 416, `If-Range`, never compressed |
+| `mojibake.test.js` | The two spellings of a Korean name and the way back to Korean |
+| `wsproxy.test.js` | The WebSocket proxy against a fake rAthena: relay, pre-connect buffering, allowlist, a real Close frame, cleanup |
+| `containment.test.js` | Path containment in `Client.getFile()`, the funnel for `/batch` and `GET /*` |
+| `rawimport.test.js` | Containment in the raw-import middleware |
+| `grf-header.test.js` | GRF header parsing for 0x200 and 0x300 |
+
+Each test was checked by breaking the behaviour it guards and confirming that it fails.
+
+**Test file names are made up on purpose.** The server reads the project's `data/` folder before any
+GRF, and AutoExtract fills that folder with every file a running game requests, so a test named like a
+real asset can be answered from disk. The test helper refuses to start when that happens and names the
+file.
+
+### Validating a Change End to End
+
+The suite uses synthetic archives. Before opening a pull request that touches how files are found or
+served, also run the change against a real client:
+
+1. `npm ci && npm test`.
+2. Start the server with your client's `DATA.INI`. The boot log must show `Client initialized` **before**
+   `Server ready`.
+3. Log in through roBrowser, pick a character and enter a map. The browser console should show no errors
+   from this server, and `/api/missing-files` nothing that was not missing before.
+4. If the change touches search: open the GRF Viewer with `remoteClient` pointing at this server, open
+   `data`, then `texture`, then the Korean interface folder, and preview a file.
 
 ## NPM Scripts
 
@@ -590,15 +647,21 @@ Many Ragnarok GRF files contain Korean filenames encoded in CP949/EUC-KR. When r
 
 **The problem:**
 ```
-Client requests: /data/texture/유저인터페이스/t_배경3-3.tga
-GRF contains:    /data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/t_¹è°æ3-3.tga
+GRF stores:          data\texture\유저인터페이스\t_배경3-3.tga    as CP949 bytes
+roBrowser requests:  /data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/t_¹è°æ3-3.tga   one character per byte
 ```
+
+The client never decodes these names as Korean: it holds each byte as one character and builds URLs from
+that. Bytes `0x80`–`0x9F` have two spellings — a C1 control in Latin-1, a printable character in
+windows-1252 (`Œ` for `0x8C`) — and the client uses both: file names read from maps come as Latin-1, names
+from a search answer or a decoded table as windows-1252. In the bRO `data.grf`, 13 names contain such a
+byte (`똠양꿍.spr` is `Œc¾ç²á.spr`).
 
 **The solution:**
 
 The server handles this automatically through:
 1. **Mojibake indexing** — builds GRF index with both Korean Unicode and mojibake variants
-2. **Runtime decoding** — decodes mojibake paths back to Korean Unicode on request
+2. **Runtime decoding** — decodes mojibake paths back to Korean Unicode on request, in either spelling
 3. **Path mapping** — optional `path-mapping.json` for explicit Korean → GRF path mappings
 
 ```bash
