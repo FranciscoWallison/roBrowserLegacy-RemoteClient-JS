@@ -34,9 +34,31 @@ function defaultCorsOrigins(clientPublicUrl) {
 }
 
 /**
+ * The CORS origins to allow, from the CORS_ORIGINS environment variable.
+ *
+ * Unset or empty keeps the defaults above. Otherwise it is the complete list, comma-separated -- the
+ * defaults are not added to it -- or "*" for any origin. "*" is safe to use here: every response is a
+ * public game asset, and the client never sends credentials.
+ *
+ * @param {string|undefined} value
+ * @param {string} clientPublicUrl
+ * @returns {string[]|'*'}
+ */
+function resolveCorsOrigins(value, clientPublicUrl) {
+  const origins = (value || '')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, '')) // an origin never has a trailing slash
+    .filter(Boolean);
+
+  if (origins.length === 0) return defaultCorsOrigins(clientPublicUrl);
+  if (origins.includes('*')) return '*';
+  return origins;
+}
+
+/**
  * @param {object} [options]
  * @param {boolean} [options.isProd=false] production mode: diagnostic endpoints are gated
- * @param {string[]} [options.corsOrigins] allowed CORS origins
+ * @param {string[]|'*'} [options.corsOrigins] allowed CORS origins, or '*' for any
  * @param {object|null} [options.validationStatus] startup validation report, served by /api/health
  * @param {object|null} [options.esrganInstance] loaded ESRGAN plugin, if any
  * @param {string|null} [options.staticRoot] roBrowserLegacy checkout to serve, when ENABLE_STATIC_SERVE
@@ -144,4 +166,4 @@ function createApp({
   return app;
 }
 
-module.exports = { createApp, defaultCorsOrigins };
+module.exports = { createApp, defaultCorsOrigins, resolveCorsOrigins };

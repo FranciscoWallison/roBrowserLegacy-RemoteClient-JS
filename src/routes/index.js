@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const Client = require('../controllers/clientController');
 const configs = require('../config/configs');
+const { toLatin1 } = require('../utils/mojibake');
 
 // Cache duration settings (in seconds)
 const CACHE_DURATIONS = {
@@ -44,9 +45,15 @@ function setCacheHeaders(res, filePath, content, cachedETag) {
   return null;
 }
 
-// Longest accepted /search pattern. The client sends RegExp.source, which is short
-// in practice; the cap keeps a hostile pattern from being arbitrarily complex.
+// Longest accepted search pattern. The client sends RegExp.source, which is short in practice -- the
+// longest GRF Viewer directory pattern the bRO data.grf can produce is 105 characters -- and the cap
+// keeps a hostile pattern from being arbitrarily complex.
 const MAX_FILTER_LENGTH = 256;
+
+// Served with byte-range support. The client plays BGM through an <audio> element pointed straight at
+// this server; without ranges the browser cannot seek, and some refuse to play at all. Kept to audio,
+// which is never compressed, so a range always refers to the bytes actually sent.
+const RANGE_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg']);
 
 // Ceiling on the raw bytes one /batch response may assemble in memory. Bodies are
 // base64-encoded on top of this, so the socket sees roughly 4/3 of it.
@@ -74,32 +81,55 @@ function checkConditionalRequest(req, etag) {
 // side effect of requiring this module -- which also made the app impossible to import without parsing
 // every configured GRF.
 
-router.post('/search', asyncRoute(async (req, res) => {
-  const filter = req.body.filter;
-  if (!configs.CLIENT_ENABLESEARCH || typeof filter !== 'string' || filter.length === 0) {
-    return res.status(400).send('Search feature is disabled or invalid filter');
-  }
+/**
+ * File search, as roBrowser's FileManager.search calls it: a synchronous POST to the remote client's
+ * root URL, form-encoded `filter=<RegExp.source>`. Only the map, model, STR, Granny and GRF viewers
+ * search; the game does not.
+ *
+ * The contract, all of it dictated by the client:
+ * - The answer is the matched substrings, one per line, as Client.search describes -- not whole paths.
+ * - The body is the name bytes as they are in the GRF, labelled ISO-8859-1. The client decodes it that
+ *   way (overrideMimeType) and reuses each line as a path, so re-encoding the names as UTF-8 would hand
+ *   it names that exist nowhere.
+ * - Anything that is not a result -- search disabled, a bad pattern, a timeout -- is an empty 200. The
+ *   client ignores the status and splits whatever body it gets on newlines, so an error message would
+ *   come back to it as file names. X-Search-Error says what happened, for anyone debugging.
+ */
+async function search(req, res) {
+  res.set('Content-Type', 'text/plain; charset=ISO-8859-1');
+  res.set('Cache-Control', 'no-store');
 
-  if (filter.length > MAX_FILTER_LENGTH) {
-    return res.status(400).send(`Filter too long (max ${MAX_FILTER_LENGTH} characters)`);
-  }
+  const reply = (matches, error) => {
+    if (error) res.set('X-Search-Error', error);
+    res.send(Buffer.from(matches.join('\n'), 'latin1'));
+  };
 
-  let regex;
+  const filter = req.body && req.body.filter;
+  if (!configs.CLIENT_ENABLESEARCH) return reply([], 'disabled');
+  if (typeof filter !== 'string' || filter.length === 0) return reply([], 'invalid-filter');
+  if (filter.length > MAX_FILTER_LENGTH) return reply([], 'filter-too-long');
+
+  // A pattern built from a previous result, like a GRF Viewer folder, holds the windows-1252 spelling of
+  // bytes 0x80-0x9F; the tables hold one character per byte.
+  const pattern = toLatin1(filter);
   try {
-    regex = new RegExp(filter, 'i');
+    new RegExp(pattern, 'gi');
   } catch (e) {
-    return res.status(400).send('Invalid regular expression');
+    return reply([], 'invalid-pattern');
   }
 
   try {
-    const files = await Client.search(regex);
-    res.send(files.join('\n'));
+    reply(await Client.search(pattern));
   } catch (err) {
-    // The pattern overran its deadline and the worker was terminated. This is the expected
-    // outcome for a catastrophic pattern, not a server fault worth a 500.
-    res.status(503).send('Search timed out: pattern too expensive');
+    // The pattern overran its deadline and the worker was terminated -- the expected outcome for a
+    // catastrophic pattern, not a server fault.
+    reply([], 'timeout');
   }
-}));
+}
+
+router.post('/', asyncRoute(search));
+// The route this server used to answer on. The client never called it, but other tools may.
+router.post('/search', asyncRoute(search));
 
 // Batch file endpoint - fetch multiple files in a single request
 router.post('/batch', asyncRoute(async (req, res) => {
@@ -163,15 +193,7 @@ router.get('/*', asyncRoute(async (req, res) => {
   const cachedEntry = Client.getFileCachedETag ? Client.getFileCachedETag(filePath) : null;
 
   if (cachedEntry) {
-    // Check conditional request using cached ETag before sending data
-    if (checkConditionalRequest(req, cachedEntry.etag)) {
-      return res.status(304).end();
-    }
-
-    // Set content type and cache headers using cached ETag
-    res.type(path.extname(filePath));
-    setCacheHeaders(res, filePath, cachedEntry.data, cachedEntry.etag);
-    return res.send(cachedEntry.data);
+    return sendAsset(req, res, filePath, cachedEntry.data, cachedEntry.etag);
   }
 
   // Cache miss - fetch from GRF or local filesystem
@@ -182,18 +204,47 @@ router.get('/*', asyncRoute(async (req, res) => {
     return res.status(404).send('File not found');
   }
 
-  // Set content type
+  // ETag computed fresh, since the file was not in the cache
+  sendAsset(req, res, filePath, fileContent, null);
+}));
+
+/**
+ * Answer with a game asset: 304 when the client's copy is current, a byte range when one is asked for
+ * and the file supports it, the whole file otherwise.
+ */
+function sendAsset(req, res, filePath, content, cachedETag) {
   res.type(path.extname(filePath));
+  const etag = setCacheHeaders(res, filePath, content, cachedETag);
 
-  // Set cache headers and get ETag (computed fresh since not in cache)
-  const etag = setCacheHeaders(res, filePath, fileContent, null);
-
-  // Check if client has valid cached version (304 Not Modified)
   if (checkConditionalRequest(req, etag)) {
     return res.status(304).end();
   }
 
-  res.send(fileContent);
-}));
+  if (RANGE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
+    res.set('Accept-Ranges', 'bytes');
+
+    // If-Range: serve the range only if the client's partial copy is of this same file. A date cannot be
+    // checked -- Last-Modified here is the time of the response, not of the file -- so it gets the whole.
+    const ifRange = req.headers['if-range'];
+    const rangeApplies = req.headers.range && (!ifRange || ifRange === `"${etag}"`);
+    const ranges = rangeApplies ? req.range(content.length, { combine: true }) : undefined;
+
+    if (ranges === -1) {
+      res.set('Content-Range', `bytes */${content.length}`);
+      return res.status(416).end();
+    }
+
+    // A malformed header (-2), or several ranges after combining, falls through to the whole file, as
+    // RFC 9110 allows.
+    if (Array.isArray(ranges) && ranges.type === 'bytes' && ranges.length === 1) {
+      const { start, end } = ranges[0];
+      res.status(206);
+      res.set('Content-Range', `bytes ${start}-${end}/${content.length}`);
+      return res.send(content.subarray(start, end + 1));
+    }
+  }
+
+  return res.send(content);
+}
 
 module.exports = router;

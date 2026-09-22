@@ -31,7 +31,9 @@ Com o **Modo Servidor Unificado**, este unico processo Node.js substitui tres se
   - [Auto-Extracao para Disco](#auto-extracao-para-disco)
 - [Variaveis de Ambiente](#variaveis-de-ambiente)
 - [Endpoints da API](#endpoints-da-api)
+  - [Busca de Arquivos](#busca-de-arquivos)
 - [Testes](#testes)
+  - [Validar uma Mudanca de Ponta a Ponta](#validar-uma-mudanca-de-ponta-a-ponta)
 - [Scripts NPM](#scripts-npm)
 - [Suporte a Encoding de Nomes Coreanos](#suporte-a-encoding-de-nomes-coreanos)
 - [Estrutura de Diretorios](#estrutura-de-diretorios)
@@ -49,7 +51,8 @@ Com o **Modo Servidor Unificado**, este unico processo Node.js substitui tres se
 - **Cache LRU de arquivos** com tamanho configuravel (ate 5000 arquivos / 1GB+)
 - **Aquecimento de cache** — pre-carrega assets mais usados na inicializacao
 - **Indexacao de arquivos GRF** — buscas O(1) em todos os arquivos GRF
-- **Headers de cache HTTP** (ETag, Cache-Control) para cache do navegador
+- **Headers de cache HTTP** (ETag, Cache-Control) para cache do navegador, e faixas de bytes para audio
+- **Busca de arquivos** para os viewers de mapa, modelo e GRF, respondendo igual a um GRF carregado localmente
 - **Compressao Gzip/Deflate** para respostas baseadas em texto
 - **Suporte a encoding de nomes coreanos** (CP949/EUC-KR) com deteccao/correcao de mojibake
 - **Sistema de mapeamento de paths** para conversao de encoding (path coreano → path GRF)
@@ -342,6 +345,7 @@ Assets estaticos do jogo recebem headers de cache apropriados para cache no nave
 | ETag | Hash MD5 | Validacao de conteudo |
 | Cache-Control | `max-age=86400, immutable` | Cache de 1 dia para assets do jogo |
 | 304 Not Modified | — | Pular re-download se nao mudou |
+| Accept-Ranges / 206 | `bytes` | So `.mp3`, `.wav` e `.ogg`: deixa o elemento `<audio>` que toca a BGM avancar e voltar. Respeita `If-Range` |
 
 ### Compressao de Respostas
 
@@ -360,7 +364,9 @@ Quando `CLIENT_AUTOEXTRACT=true` (padrao em `src/config/configs.js`), arquivos e
 | Variavel | Padrao | Descricao |
 |----------|--------|-----------|
 | `PORT` | `3338` | Porta do servidor |
-| `CLIENT_PUBLIC_URL` | `http://localhost:8000` | Origem CORS permitida |
+| `CLIENT_PUBLIC_URL` | `http://localhost:8000` | Origem CORS permitida, somada as portas locais de desenvolvimento (8000, 8080, 3338 em `localhost` e `127.0.0.1`) |
+| `CORS_ORIGINS` | *(vazio)* | Lista de origens permitidas, separadas por virgula. Quando definida e a lista **completa** — os padroes acima nao entram — e `*` libera qualquer origem |
+| `CLIENT_ENABLESEARCH` | `true` | `false` desliga a [busca de arquivos](#busca-de-arquivos); ela passa a responder lista vazia |
 | `NODE_ENV` | `development` | Ambiente Node (`development` ou `production`) |
 | `CACHE_MAX_FILES` | `5000` | Max arquivos no cache LRU |
 | `CACHE_MAX_MEMORY_MB` | `1024` | Max memoria do cache (MB) |
@@ -382,7 +388,8 @@ Quando `CLIENT_AUTOEXTRACT=true` (padrao em `src/config/configs.js`), arquivos e
 | GET | `/api/cache-stats` | Estatisticas de cache e indice. Apenas em desenvolvimento — 404 em producao |
 | GET | `/api/missing-files` | Lista de arquivos nao encontrados. Apenas em desenvolvimento — 404 em producao |
 | GET | `/*` | Serve qualquer arquivo do client (do disco, cache ou GRF) |
-| POST | `/search` | Busca arquivos por filtro regex |
+| POST | `/` | [Busca de arquivos](#busca-de-arquivos), onde o roBrowser a envia |
+| POST | `/search` | A mesma busca, na rota que este servidor usava antes |
 | GET | `/list-files` | Lista todos os arquivos disponiveis |
 | WS | `/ws/{host}:{port}` | Proxy WebSocket para TCP (quando `ENABLE_WSPROXY=true`) |
 
@@ -398,10 +405,8 @@ curl http://localhost:3338/api/cache-stats
 # Verificar arquivos ausentes
 curl http://localhost:3338/api/missing-files
 
-# Buscar arquivos por regex
-curl -X POST http://localhost:3338/search \
-  -H "Content-Type: application/json" \
-  -d '{"filter": "sprite.*\\.spr"}'
+# Buscar nos nomes do GRF, como o Map Viewer lista os mapas
+curl -X POST http://localhost:3338/ --data-urlencode 'filter=data\\([^\0]+\.rsw)'
 ```
 
 **Exemplo de resposta de estatisticas do cache:**
@@ -425,6 +430,30 @@ curl -X POST http://localhost:3338/search \
 }
 ```
 
+### Busca de Arquivos
+
+So os viewers buscam — Map, Model, STR, Granny e GRF Viewer; o jogo em si nunca busca. O
+`FileManager.search` do cliente faz `POST` de `filter=<RegExp.source>` na **URL raiz** do remote client e
+quebra a resposta em linhas. Com um GRF carregado localmente, ele roda a mesma regex sobre a tabela de
+nomes do arquivo, e os viewers nao distinguem um caso do outro — entao o servidor responde exatamente
+como essa busca local responderia:
+
+- **A regex roda sobre a tabela de nomes, nao sobre caminhos.** Todos os nomes de um GRF, cada um seguido
+  de NUL, um caractere por byte — o `table.data` do cliente. As flags sao sempre `gi` (o cliente descarta
+  as que tinha) e a resposta e cada **trecho casado**, uma vez so. E isso que deixa o GRF Viewer listar
+  uma pasta: ele casa `data\\texture\\([^(\0|\\)]+)` e recebe cada entrada logo abaixo dela, nao todos os
+  caminhos abaixo.
+- **O corpo sao os bytes dos nomes como estao no GRF**, com `text/plain; charset=ISO-8859-1`. O cliente le
+  assim e reaproveita cada linha como caminho, entao todo nome devolvido pela busca pode ser baixado.
+- **Toda falha e um `200` vazio**: busca desligada, filtro ausente, padrao que nao compila ou passa de 256
+  caracteres, padrao que estoura o prazo de 2 segundos. O cliente ignora o status e leria uma mensagem de
+  erro como nomes de arquivo. O header `X-Search-Error` diz o que aconteceu.
+- **Sem limite de resultados.** Buscar todos os nomes de um `data.grf` completo devolve os 205.404 em menos
+  de um segundo.
+
+O padrao vem de fora, e um como `^(.+)+#$` faz backtracking exponencial. A busca roda numa worker thread
+que e encerrada no prazo, entao o servidor continua respondendo enquanto ela queima.
+
 ---
 
 ## Testes
@@ -433,21 +462,49 @@ curl -X POST http://localhost:3338/search \
 npm test
 ```
 
-A suite roda no test runner embutido do Node — sem framework para instalar. **Nao precisa do cliente
-Ragnarok**: os fixtures GRF em `tests/fixtures/` somam menos de 2 KB e sao arquivos sinteticos sob
-licenca MIT (ver `tests/fixtures/README.md`). O CI roda o mesmo comando em todo pull request.
+A suite roda no test runner embutido do Node — sem framework para instalar — e **nao precisa do cliente
+Ragnarok**. Os testes montam GRFs pequenos na hora (`tests/helpers/grfBuilder.js`), inclusive com nomes
+coreanos gravados em bytes CP949; os fixtures de header em `tests/fixtures/` sao sinteticos e somam menos
+de 2 KB. O CI roda o mesmo comando no Node 22 e 24 em todo pull request.
 
-O que ela cobre, na ordem do que doeria mais se quebrasse:
+Os testes HTTP sobem o app de verdade (`createApp()`) numa porta aleatoria e falam com ele como o roBrowser
+fala. O `tests/helpers/roBrowser.js` reproduz o codigo do proprio cliente — a URL que o
+`FileManager.getHTTP` monta, a requisicao que o `FileManager.search` envia, o padrao que cada viewer monta,
+a resposta que um GRF carregado localmente da — entao um teste falha quando o servidor deixa de funcionar
+para o cliente real, e nao so quando deixa de bater com a propria ideia de requisicao.
 
-- **Contencao de caminho** em `Client.getFile()` — o funil de `POST /batch` e da rota curinga `GET /*`.
-  Traversal, caminhos absolutos, byte NUL, e a raiz do repositorio nao ser doc-root, mais o caminho
-  feliz para a contencao nao virar bloqueio geral.
-- **Contencao no middleware de raw import**, tanto no handler `?raw` quanto no reescritor de imports.
-- **Parsing de header GRF** 0x200 e 0x300, contra headers sinteticos e arquivos reais de cada versao,
-  mais os tres casos de rejeicao.
-- **Gating em producao** dos endpoints de diagnostico. Sao assercoes estruturais sobre o `index.js`, nao
-  chamadas HTTP — os handlers vivem dentro de `startServer()`, que exige um GRF real. O arquivo diz isso
-  no topo e registra o resultado obtido com o servidor no ar.
+| Arquivo | O que cobre |
+|---------|-------------|
+| `http.test.js` | Servir assets: busca sem diferenciar maiusculas, nomes coreanos em toda grafia que o cliente envia, 404, ETag/304, CORS e `CORS_ORIGINS`, `/batch`, contencao de caminho na requisicao, diagnosticos fechados em producao, o mount estatico |
+| `search.test.js` | O contrato da busca: para o padrao de cada viewer, a resposta e identica a de um GRF carregado localmente; todo nome devolvido pode ser baixado; bytes Latin-1; `200` vazio em toda falha |
+| `search-scale.test.js` | Sem limite no numero de resultados |
+| `search-redos.test.js` | Um padrao catastrofico e cortado no prazo sem travar o servidor |
+| `range.test.js` | Faixas de bytes para audio: 206, 416, `If-Range`, nunca comprimido |
+| `mojibake.test.js` | As duas grafias de um nome coreano e o caminho de volta para o coreano |
+| `wsproxy.test.js` | O proxy WebSocket contra um rAthena falso: repasse, buffer antes da conexao, allowlist, Close frame de verdade, limpeza |
+| `containment.test.js` | Contencao de caminho em `Client.getFile()`, o funil de `/batch` e `GET /*` |
+| `rawimport.test.js` | Contencao no middleware de raw import |
+| `grf-header.test.js` | Parsing de header GRF 0x200 e 0x300 |
+
+Cada teste foi conferido quebrando o comportamento que ele protege e vendo o teste falhar.
+
+**Os nomes de arquivo dos testes sao inventados de proposito.** O servidor le a pasta `data/` do projeto
+antes de qualquer GRF, e o AutoExtract enche essa pasta com todo arquivo que um jogo rodando pede — entao
+um teste com nome de asset real pode ser respondido pelo disco. O helper de teste se recusa a subir quando
+isso acontece e diz qual e o arquivo.
+
+### Validar uma Mudanca de Ponta a Ponta
+
+A suite usa GRFs sinteticos. Antes de abrir um pull request que mexa em como os arquivos sao achados ou
+servidos, rode tambem a mudanca contra um cliente real:
+
+1. `npm ci && npm test`.
+2. Suba o servidor com o `DATA.INI` do seu cliente. O log de boot deve mostrar `Client initialized`
+   **antes** de `Server ready`.
+3. Entre pelo roBrowser, escolha um personagem e entre num mapa. O console do navegador nao deve mostrar
+   erro vindo deste servidor, e `/api/missing-files` nada que ja nao faltasse antes.
+4. Se a mudanca mexe na busca: abra o GRF Viewer com `remoteClient` apontando para este servidor, abra
+   `data`, depois `texture`, depois a pasta coreana da interface, e visualize um arquivo.
 
 ## Scripts NPM
 
@@ -475,15 +532,21 @@ Muitos arquivos GRF do Ragnarok contem nomes de arquivo em coreano codificados e
 
 **O problema:**
 ```
-Cliente solicita: /data/texture/유저인터페이스/t_배경3-3.tga
-GRF contem:       /data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/t_¹è°æ3-3.tga
+GRF guarda:          data\texture\유저인터페이스\t_배경3-3.tga    em bytes CP949
+roBrowser solicita:  /data/texture/À¯ÀúÀÎÅÍÆäÀÌ½º/t_¹è°æ3-3.tga   um caractere por byte
 ```
+
+O cliente nunca decodifica esses nomes como coreano: guarda cada byte como um caractere e monta as URLs a
+partir disso. Os bytes `0x80`–`0x9F` tem duas grafias — um controle C1 em Latin-1, um caractere visivel em
+windows-1252 (`Œ` para `0x8C`) — e o cliente usa as duas: nomes lidos de mapas vem em Latin-1, nomes de uma
+resposta de busca ou de uma tabela decodificada vem em windows-1252. No `data.grf` do bRO, 13 nomes tem um
+byte assim (`똠양꿍.spr` vira `Œc¾ç²á.spr`).
 
 **A solucao:**
 
 O servidor lida com isso automaticamente atraves de:
 1. **Indexacao mojibake** — constroi o indice GRF com variantes em Unicode coreano e mojibake
-2. **Decodificacao em tempo real** — decodifica paths mojibake de volta para Unicode coreano na requisicao
+2. **Decodificacao em tempo real** — decodifica paths mojibake de volta para Unicode coreano na requisicao, nas duas grafias
 3. **Mapeamento de paths** — `path-mapping.json` opcional para mapeamentos explicitos Coreano → path GRF
 
 ```bash

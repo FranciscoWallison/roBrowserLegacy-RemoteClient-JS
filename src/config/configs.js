@@ -3,5 +3,5 @@ module.exports = {
 	CLIENT_RESPATH: "resources/",
 	CLIENT_DATAINI: "DATA.INI",
 	CLIENT_AUTOEXTRACT: true,
-	CLIENT_ENABLESEARCH: true,
+	CLIENT_ENABLESEARCH: process.env.CLIENT_ENABLESEARCH !== 'false',
 };

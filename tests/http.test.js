@@ -11,17 +11,24 @@ const assert = require('node:assert');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const iconv = require('iconv-lite');
 const { startServer, rawGet } = require('./helpers/server');
-const { clientUrlPath } = require('./helpers/grfBuilder');
+const { clientUrlPath, urlPathFor } = require('./helpers/roBrowser');
+const { resolveCorsOrigins, defaultCorsOrigins } = require('../src/app');
 
 const ASCII = { name: 'data\\texture\\basepic\\loading01.txt', content: 'plain ascii payload '.repeat(20) };
 const KOREAN = { name: 'data\\texture\\유저인터페이스\\basic.bmp', content: 'korean-named payload '.repeat(20) };
+// "똠" is 0x8C 0x63 in CP949: a byte Latin-1 and windows-1252 read differently.
+const KOREAN_C1 = { name: 'data\\sprite\\아이템\\똠테스트.spr', content: 'c1-byte payload '.repeat(20) };
 const ALLOWED_ORIGIN = 'http://localhost:8000';
 
 let dev;
 
 test.before(async () => {
-  dev = await startServer({ isProd: false, corsOrigins: [ALLOWED_ORIGIN] }, { files: [ASCII, KOREAN] });
+  dev = await startServer(
+    { isProd: false, corsOrigins: [ALLOWED_ORIGIN] },
+    { files: [ASCII, KOREAN, KOREAN_C1] }
+  );
 });
 
 test.after(async () => {
@@ -41,7 +48,7 @@ test('path lookup is case-insensitive, as in the official client', async () => {
 });
 
 test('serves a Korean-named file at the exact URL roBrowser builds', async () => {
-  // CP949 bytes read as Latin-1, then encodeURIComponent per segment -- FileManager.getHTTP's format.
+  // CP949 bytes read as windows-1252, then encodeURIComponent per segment -- FileManager.getHTTP's format.
   const res = await fetch(dev.base + clientUrlPath(KOREAN.name));
   assert.strictEqual(res.status, 200, `client URL ${clientUrlPath(KOREAN.name)} did not resolve`);
   assert.strictEqual(await res.text(), KOREAN.content);
@@ -52,6 +59,23 @@ test('also serves the Korean-named file when requested as UTF-8', async () => {
   const res = await fetch(dev.base + utf8Path);
   assert.strictEqual(res.status, 200);
   assert.strictEqual(await res.text(), KOREAN.content);
+});
+
+test('serves a name with a CP949 byte in 0x80-0x9F in both of its spellings', async () => {
+  // The client reads names as windows-1252 ("Œc" for 똠); a Latin-1 reading gives a C1 control instead
+  // of "Œ". Only the Latin-1 spelling used to resolve.
+  const bytes = iconv.encode(KOREAN_C1.name, 'cp949');
+  const spellings = {
+    'windows-1252 (what the client sends)': clientUrlPath(KOREAN_C1.name),
+    'Latin-1': urlPathFor(bytes.toString('latin1')),
+  };
+  assert.notStrictEqual(spellings['Latin-1'], spellings['windows-1252 (what the client sends)']);
+
+  for (const [label, urlPath] of Object.entries(spellings)) {
+    const res = await fetch(dev.base + urlPath);
+    assert.strictEqual(res.status, 200, `${label} spelling ${urlPath} did not resolve`);
+    assert.strictEqual(await res.text(), KOREAN_C1.content);
+  }
 });
 
 test('a file that exists nowhere answers 404', async () => {
@@ -78,6 +102,27 @@ test('CORS: an allowed origin is echoed back', async () => {
 test('CORS: an origin outside the list gets no allow header', async () => {
   const res = await fetch(dev.base + '/data/texture/basepic/loading01.txt', { headers: { Origin: 'http://evil.example' } });
   assert.strictEqual(res.headers.get('access-control-allow-origin'), null);
+});
+
+test('CORS_ORIGINS: unset keeps the defaults, a list replaces them, "*" allows any origin', () => {
+  const clientUrl = 'http://localhost:3000';
+  assert.deepStrictEqual(resolveCorsOrigins(undefined, clientUrl), defaultCorsOrigins(clientUrl));
+  assert.deepStrictEqual(resolveCorsOrigins(' , ', clientUrl), defaultCorsOrigins(clientUrl));
+  assert.deepStrictEqual(
+    resolveCorsOrigins(' https://play.example.com/ , https://cdn.example.com ', clientUrl),
+    ['https://play.example.com', 'https://cdn.example.com']
+  );
+  assert.strictEqual(resolveCorsOrigins('https://a.example, *', clientUrl), '*');
+});
+
+test('CORS_ORIGINS="*": any origin gets an allow header', async () => {
+  const srv = await startServer({ corsOrigins: resolveCorsOrigins('*') });
+  try {
+    const res = await fetch(srv.base + '/api/health', { headers: { Origin: 'https://anywhere.example' } });
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), '*');
+  } finally {
+    await srv.close();
+  }
 });
 
 test('POST /batch returns requested files as base64 and omits the missing ones', async () => {
