@@ -50,6 +50,11 @@ function setCacheHeaders(res, filePath, content, cachedETag) {
 // keeps a hostile pattern from being arbitrarily complex.
 const MAX_FILTER_LENGTH = 256;
 
+// Served with byte-range support. The client plays BGM through an <audio> element pointed straight at
+// this server; without ranges the browser cannot seek, and some refuse to play at all. Kept to audio,
+// which is never compressed, so a range always refers to the bytes actually sent.
+const RANGE_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg']);
+
 // Ceiling on the raw bytes one /batch response may assemble in memory. Bodies are
 // base64-encoded on top of this, so the socket sees roughly 4/3 of it.
 const MAX_BATCH_BYTES = 32 * 1024 * 1024;
@@ -188,15 +193,7 @@ router.get('/*', asyncRoute(async (req, res) => {
   const cachedEntry = Client.getFileCachedETag ? Client.getFileCachedETag(filePath) : null;
 
   if (cachedEntry) {
-    // Check conditional request using cached ETag before sending data
-    if (checkConditionalRequest(req, cachedEntry.etag)) {
-      return res.status(304).end();
-    }
-
-    // Set content type and cache headers using cached ETag
-    res.type(path.extname(filePath));
-    setCacheHeaders(res, filePath, cachedEntry.data, cachedEntry.etag);
-    return res.send(cachedEntry.data);
+    return sendAsset(req, res, filePath, cachedEntry.data, cachedEntry.etag);
   }
 
   // Cache miss - fetch from GRF or local filesystem
@@ -207,18 +204,47 @@ router.get('/*', asyncRoute(async (req, res) => {
     return res.status(404).send('File not found');
   }
 
-  // Set content type
+  // ETag computed fresh, since the file was not in the cache
+  sendAsset(req, res, filePath, fileContent, null);
+}));
+
+/**
+ * Answer with a game asset: 304 when the client's copy is current, a byte range when one is asked for
+ * and the file supports it, the whole file otherwise.
+ */
+function sendAsset(req, res, filePath, content, cachedETag) {
   res.type(path.extname(filePath));
+  const etag = setCacheHeaders(res, filePath, content, cachedETag);
 
-  // Set cache headers and get ETag (computed fresh since not in cache)
-  const etag = setCacheHeaders(res, filePath, fileContent, null);
-
-  // Check if client has valid cached version (304 Not Modified)
   if (checkConditionalRequest(req, etag)) {
     return res.status(304).end();
   }
 
-  res.send(fileContent);
-}));
+  if (RANGE_EXTENSIONS.has(path.extname(filePath).toLowerCase())) {
+    res.set('Accept-Ranges', 'bytes');
+
+    // If-Range: serve the range only if the client's partial copy is of this same file. A date cannot be
+    // checked -- Last-Modified here is the time of the response, not of the file -- so it gets the whole.
+    const ifRange = req.headers['if-range'];
+    const rangeApplies = req.headers.range && (!ifRange || ifRange === `"${etag}"`);
+    const ranges = rangeApplies ? req.range(content.length, { combine: true }) : undefined;
+
+    if (ranges === -1) {
+      res.set('Content-Range', `bytes */${content.length}`);
+      return res.status(416).end();
+    }
+
+    // A malformed header (-2), or several ranges after combining, falls through to the whole file, as
+    // RFC 9110 allows.
+    if (Array.isArray(ranges) && ranges.type === 'bytes' && ranges.length === 1) {
+      const { start, end } = ranges[0];
+      res.status(206);
+      res.set('Content-Range', `bytes ${start}-${end}/${content.length}`);
+      return res.send(content.subarray(start, end + 1));
+    }
+  }
+
+  return res.send(content);
+}
 
 module.exports = router;
