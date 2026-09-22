@@ -217,6 +217,11 @@ Server ready on http://localhost:3338 | Game: http://localhost:3338/applications
 Cache warmed with 500 files in 3200ms
 ```
 
+**Stopping:** `Ctrl+C` (SIGINT) or SIGTERM from a container runtime or process manager stops the server cleanly: game
+sessions get a close frame (`1001`), requests in flight finish, and the missing-files log is flushed. A connection
+still open after 5 seconds is abandoned. On Windows only `Ctrl+C` in the terminal delivers the signal; ending the
+process from Task Manager kills it outright.
+
 ### Development vs Production
 
 | Feature | Development | Production |
@@ -226,6 +231,7 @@ Cache warmed with 500 files in 3200ms
 | WS proxy connect/disconnect | Logged | Silent |
 | File index details | Logged | Silent |
 | Missing file per-file log | Logged to console | Only to file |
+| `/list-files`, `/api/missing-files`, `/api/cache-stats` | Available | 404 |
 | Startup info | Verbose | One-line summary |
 | Errors and warnings | Always shown | Always shown |
 
@@ -251,6 +257,15 @@ When `ENABLE_WSPROXY=true`, the server embeds a WebSocket-to-TCP proxy that repl
 - `127.0.0.1:6900` (Login server)
 - `127.0.0.1:6121` (Char server)
 - `127.0.0.1:5121` (Map server)
+
+**Limits** — none of which roBrowser comes near:
+- **Origin.** A browser page can only open the proxy if its origin is one the server allows for CORS
+  (`CLIENT_PUBLIC_URL` and the local dev ports, or `CORS_ORIGINS`). Without the check, any web page a player
+  visited could use the proxy from their browser. Clients that send no Origin (not a browser page) are let through.
+- **Frame size:** 64 KiB. The library's default was 100 MiB; a game packet is a few hundred bytes.
+- **Connect timeout:** 10 s to reach the game server, then the browser gets close code `1011`.
+- **Before the game server answers:** at most 256 KiB are buffered, then the connection is closed with `1008`
+  rather than dropping packets, which would desynchronise the game.
 
 **Custom targets (Docker/Kubernetes):**
 
@@ -494,6 +509,7 @@ Static game assets receive proper cache headers for browser-side caching:
 | ETag | MD5 hash | Content validation |
 | Cache-Control | `max-age=86400, immutable` | 1-day cache for game assets |
 | 304 Not Modified | — | Skip re-download if unchanged |
+| Last-Modified | *(not sent)* | It used to be the time of the response, so every file claimed to change at every request; the ETag validates |
 | Accept-Ranges / 206 | `bytes` | `.mp3`, `.wav` and `.ogg` only: lets the `<audio>` element that plays BGM seek. `If-Range` is honoured |
 
 ### Response Compression
@@ -553,7 +569,7 @@ running with it, the copies already in `data/` are still served: move them out.
 | GET | `/*` | Serves any client file (from disk, cache, or GRF) |
 | POST | `/` | [File search](#file-search), where roBrowser sends it |
 | POST | `/search` | The same search, at the route this server used before |
-| GET | `/list-files` | List all available files |
+| GET | `/list-files` | List all available files. Development only — 404 in production |
 | WS | `/ws/{host}:{port}` | WebSocket proxy to TCP (when `ENABLE_WSPROXY=true`) |
 
 ### Usage Examples
@@ -648,7 +664,8 @@ matching its own idea of a request.
 | `asset-dirs.test.js` | `BGM_PATH`, `SYSTEM_PATH`, `AI_PATH`: served, case-insensitive, ranges, no escape by `..` or by a junction |
 | `autoextract.test.js` | AutoExtract off by default; when on, writing only into the asset folders, never under a name Windows would reinterpret |
 | `validator-paths.test.js` | The startup validation from any working directory, without npm on the PATH, with the server's DATA.INI reader |
-| `wsproxy.test.js` | The WebSocket proxy against a fake rAthena: relay, pre-connect buffering, allowlist, a real Close frame, cleanup |
+| `wsproxy.test.js` | The WebSocket proxy against a fake rAthena: relay, pre-connect buffering, allowlist, a real Close frame, cleanup, and the limits: Origin, frame size, connect timeout, bytes before connect |
+| `shutdown.test.js` | Stopping: game sessions closed with 1001, requests in flight finished, the log flushed; a stuck connection abandoned after the deadline |
 | `grf-loader.test.js` | The GRF loader decodes Korean names with iconv-lite — it would not if the package were imported as an ES module (see `src/utils/grfLoader.js`) |
 | `env.test.js` | `.env` is read from the project root whatever the current directory, is optional, and never overrides a variable already set |
 | `node-version.test.js` | The startup check warns below the Node version in `engines` |
@@ -747,6 +764,7 @@ roBrowserLegacy-RemoteClient-JS/
 ├── src/                        # Application source code (ES modules)
 │   ├── app.js                  # createApp(): the Express app, without starting anything
 │   ├── env.js                  # Loads .env; the first import of every entry point
+│   ├── shutdown.js             # Clean stop on SIGINT/SIGTERM
 │   ├── wsProxy.js              # WebSocket -> TCP proxy for rAthena
 │   ├── config/
 │   │   └── configs.js          # Client and server settings
@@ -826,6 +844,8 @@ The server logs missing files to `logs/missing-files.log`. Check:
 4. Ensure rAthena is running (login:6900, char:6121, map:5121)
 5. Check server logs for `WS proxy blocked connection` messages
 6. For Docker/remote rAthena: set `WS_ALLOWED_TARGETS` in `.env` (see [Environment Variables](#environment-variables))
+7. `WS proxy refused origin ...` in the log: the page that runs roBrowser is served from an origin the server does not
+   allow. Set `CLIENT_PUBLIC_URL` to it, or list it in `CORS_ORIGINS`
 
 ### Common Issues
 
