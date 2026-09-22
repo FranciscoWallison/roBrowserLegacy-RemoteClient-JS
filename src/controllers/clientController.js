@@ -8,6 +8,7 @@ import logger from '../utils/logger.js';
 import * as searchPool from '../utils/searchPool.js';
 import { decodeMojibake } from '../utils/mojibake.js';
 import { readDataIni } from '../utils/dataIni.js';
+import { isSafeFileName } from '../utils/safePath.js';
 
 const { PROJECT_ROOT } = configs;
 
@@ -405,9 +406,14 @@ const Client = {
   },
 
   /**
-   * Extract file to local filesystem (async)
+   * Write a file read from a GRF into the project's asset folders, so later requests read it from disk
+   * (CLIENT_AUTOEXTRACT, off by default). Only ever inside one of the servable folders, and never under
+   * a name Windows would reinterpret; anything else is skipped -- the file was still served.
    */
   extractFile(localPath, content) {
+    if (!localPath || !isServable(localPath)) return;
+    if (!isSafeFileName(path.relative(PROJECT_ROOT, localPath))) return;
+
     setImmediate(() => {
       try {
         const extractDir = path.dirname(localPath);

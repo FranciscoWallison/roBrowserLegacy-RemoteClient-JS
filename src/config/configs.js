@@ -18,7 +18,10 @@ export default {
 	CLIENT_DATAINI,
 	DATA_INI_PATH: path.join(PROJECT_ROOT, CLIENT_RESPATH, CLIENT_DATAINI),
 
-	CLIENT_AUTOEXTRACT: true,
+	// Write every file read from a GRF into the project's data/ folder. Off unless asked for: the
+	// copies are read before DATA_OVERRIDE_PATH, so they hide the translated files it provides, and
+	// any anonymous request triggers a write to disk.
+	CLIENT_AUTOEXTRACT: process.env.CLIENT_AUTOEXTRACT === 'true',
 	CLIENT_ENABLESEARCH: process.env.CLIENT_ENABLESEARCH !== 'false',
 
 	// Loose client folders kept outside the project, served read-only for requests under BGM/,
