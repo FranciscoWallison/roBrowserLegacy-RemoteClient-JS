@@ -11,6 +11,9 @@ import http from 'node:http';
 import WebSocket from 'ws';
 import { attachWsProxy, parseAllowedTargets, DEFAULT_ALLOWED_TARGETS } from '../src/wsProxy.js';
 
+// The page allowed to open game connections through the main proxy below.
+const GAME_ORIGIN = 'http://game.example';
+
 let rathena; // fake game server
 let rathenaPort;
 let proxy; // http server with the proxy attached
@@ -31,7 +34,7 @@ test.before(async () => {
   rathenaPort = rathena.address().port;
 
   proxy = http.createServer((req, res) => res.end());
-  attachWsProxy(proxy, { allowedTargets: [`127.0.0.1:${rathenaPort}`] });
+  attachWsProxy(proxy, { allowedTargets: [`127.0.0.1:${rathenaPort}`], allowedOrigins: [GAME_ORIGIN] });
   await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
   proxyPort = proxy.address().port;
 });
@@ -151,4 +154,79 @@ test('WS_ALLOWED_TARGETS parsing keeps the localhost default when unset', () => 
   assert.deepStrictEqual(parseAllowedTargets(undefined), DEFAULT_ALLOWED_TARGETS);
   assert.deepStrictEqual(parseAllowedTargets(''), DEFAULT_ALLOWED_TARGETS);
   assert.deepStrictEqual(parseAllowedTargets(' 10.0.0.5:6900 , 10.0.0.5:6121 '), ['10.0.0.5:6900', '10.0.0.5:6121']);
+});
+
+// ── Limits ──
+
+test('a page from another origin cannot open the proxy; the game page and non-browser clients can', async () => {
+  const outcome = (ws) => new Promise((resolve) => {
+    ws.on('open', () => { resolve('opened'); ws.close(); });
+    ws.on('unexpected-response', (req, res) => resolve(res.statusCode));
+    ws.on('error', () => resolve('error'));
+  });
+  const url = `ws://127.0.0.1:${proxyPort}/ws/127.0.0.1:${rathenaPort}`;
+
+  assert.strictEqual(await outcome(new WebSocket(url, { origin: 'http://evil.example' })), 403);
+  assert.strictEqual(await outcome(new WebSocket(url, { origin: GAME_ORIGIN })), 'opened');
+  assert.strictEqual(await outcome(new WebSocket(url)), 'opened'); // no Origin: not a browser page
+});
+
+/** A proxy of its own, for limits the shared one does not set. */
+async function limitedProxy(options) {
+  const server = http.createServer((req, res) => res.end());
+  attachWsProxy(server, { allowedTargets: [`127.0.0.1:${rathenaPort}`], ...options });
+  await new Promise((r) => server.listen(0, '127.0.0.1', r));
+  return {
+    open: () => new WebSocket(`ws://127.0.0.1:${server.address().port}/ws/127.0.0.1:${rathenaPort}`),
+    close: () => new Promise((r) => server.close(r)),
+  };
+}
+
+test('a frame larger than maxPayload closes the connection (1009)', async () => {
+  const p = await limitedProxy({ maxPayload: 1024 });
+  try {
+    const ws = p.open();
+    await new Promise((r) => ws.on('open', r));
+    const code = closed(ws);
+    ws.send(Buffer.alloc(2048));
+    assert.strictEqual(await code, 1009);
+  } finally {
+    await p.close();
+  }
+});
+
+/** Make the proxy's own dial to the fake server hang, as a game server that drops packets would. */
+function withHangingConnect(fn) {
+  const realConnect = net.connect;
+  net.connect = (...args) => (args[0] === rathenaPort ? new net.Socket() : realConnect(...args));
+  return fn().finally(() => { net.connect = realConnect; });
+}
+
+test('a game server that never answers: the browser is told after the connect timeout (1011)', async () => {
+  await withHangingConnect(async () => {
+    const p = await limitedProxy({ connectTimeoutMs: 200 });
+    try {
+      const ws = p.open();
+      const started = Date.now();
+      assert.strictEqual(await closed(ws), 1011);
+      assert.ok(Date.now() - started < 3000, 'the connect timeout was not enforced');
+    } finally {
+      await p.close();
+    }
+  });
+});
+
+test('too much data before the game server answers closes the connection (1008) instead of dropping packets', async () => {
+  await withHangingConnect(async () => {
+    const p = await limitedProxy({ maxPendingBytes: 1024, connectTimeoutMs: 5000 });
+    try {
+      const ws = p.open();
+      await new Promise((r) => ws.on('open', r));
+      const code = closed(ws);
+      for (let i = 0; i < 3; i++) ws.send(Buffer.alloc(512));
+      assert.strictEqual(await code, 1008);
+    } finally {
+      await p.close();
+    }
+  });
 });

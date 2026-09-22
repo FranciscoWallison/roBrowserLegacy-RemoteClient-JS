@@ -27,21 +27,52 @@ function parseAllowedTargets(value) {
 /**
  * Attach the proxy to an HTTP server's upgrade event.
  *
+ * Limits, none of which roBrowser comes near:
+ * - `allowedOrigins`: a browser always sends Origin on a WebSocket handshake, and without a check any
+ *   web page a player visits could open the proxy from their browser. The list is the CORS one; a
+ *   request with no Origin is not from a browser page and is let through, like a CORS-less request.
+ * - `maxPayload`: the largest frame accepted. The library's default is 100 MiB; a client packet is a
+ *   few hundred bytes.
+ * - `connectTimeoutMs`: how long to wait for the game server to accept. Without it a target that drops
+ *   packets held the socket for the operating system's own timeout, minutes on some systems.
+ * - `maxPendingBytes`: what the browser may send before the game server accepts (see below). Past it
+ *   the connection is closed: dropping a packet silently, as the old message-count cap did, would
+ *   desynchronise the game stream.
+ *
  * @param {import('http').Server} server
- * @param {{ allowedTargets: string[] }} options
+ * @param {object} options
+ * @param {string[]} options.allowedTargets "host:port" pairs the proxy may connect to
+ * @param {string[]|'*'|null} [options.allowedOrigins] browser origins allowed to connect; null skips the check
+ * @param {number} [options.maxPayload]
+ * @param {number} [options.connectTimeoutMs]
+ * @param {number} [options.maxPendingBytes]
  * @returns {WebSocketServer} so callers (shutdown, tests) can close it
  */
-function attachWsProxy(server, { allowedTargets }) {
-  const wss = new WebSocketServer({ noServer: true });
+function attachWsProxy(server, {
+  allowedTargets,
+  allowedOrigins = null,
+  maxPayload = 64 * 1024,
+  connectTimeoutMs = 10000,
+  maxPendingBytes = 256 * 1024,
+}) {
+  const wss = new WebSocketServer({ noServer: true, maxPayload });
 
   server.on('upgrade', (req, socket, head) => {
-    if (req.url.startsWith('/ws/')) {
-      wss.handleUpgrade(req, socket, head, (ws) => {
-        wss.emit('connection', ws, req);
-      });
-    } else {
+    if (!req.url.startsWith('/ws/')) {
       socket.destroy();
+      return;
     }
+
+    const origin = req.headers.origin;
+    if (origin && allowedOrigins && allowedOrigins !== '*' && !allowedOrigins.includes(origin)) {
+      logger.warn(`WS proxy refused origin ${origin}`);
+      socket.end('HTTP/1.1 403 Forbidden\r\nConnection: close\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
   });
 
   wss.on('connection', (ws, req) => {
@@ -77,36 +108,45 @@ function attachWsProxy(server, { allowedTargets }) {
     // roBrowser sends the first game packet synchronously in its onopen handler,
     // which races with net.connect()'s async 'connect' event. Without buffering,
     // packets arriving before 'connect' fires are silently dropped.
-    const MAX_PENDING = 64;
     const pending = [];
+    let pendingBytes = 0;
     let connected = false;
 
     // Single cleanup guard: ensures tcp and ws are torn down exactly once
     // regardless of which side closes first or whether an error occurs.
     // Prevents double tcp.end() and misleading "client closed" log on errors.
     let cleaned = false;
-    const cleanup = (reason) => {
+    let connectTimer = null;
+    const cleanup = (reason, code) => {
       if (cleaned) return;
       cleaned = true;
+      clearTimeout(connectTimer);
       logger.info(`WS proxy: closed ${target} (${reason})`);
       if (!tcp.destroyed) tcp.destroy();
-      if (ws.readyState === WebSocket.OPEN) ws.close();
+      if (ws.readyState === WebSocket.OPEN) ws.close(code);
     };
+
+    connectTimer = setTimeout(() => cleanup('game server did not answer in time', 1011), connectTimeoutMs);
 
     tcp.on('connect', () => {
       connected = true;
+      clearTimeout(connectTimer);
       logger.info(`WS proxy: connected  to ${target}`);
       pending.splice(0).forEach((d) => tcp.write(d));
+      pendingBytes = 0;
     });
 
     ws.on('message', (data) => {
       if (connected) {
         tcp.write(data);
-      } else if (pending.length < MAX_PENDING) {
-        pending.push(data);
-      } else {
-        logger.warn(`WS proxy: pending queue full for ${target}, dropping message`);
+        return;
       }
+      pendingBytes += data.length;
+      if (pendingBytes > maxPendingBytes) {
+        cleanup(`more than ${maxPendingBytes} bytes sent before the game server answered`, 1008);
+        return;
+      }
+      pending.push(data);
     });
 
     tcp.on('data', (data) => {

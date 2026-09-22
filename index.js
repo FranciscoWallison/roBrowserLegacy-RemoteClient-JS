@@ -104,7 +104,11 @@ async function startServer() {
 
   let wss = null;
   if (ENABLE_WSPROXY) {
-    wss = attachWsProxy(server, { allowedTargets: parseAllowedTargets(process.env.WS_ALLOWED_TARGETS) });
+    // The pages allowed to fetch assets are the ones allowed to open a game connection.
+    wss = attachWsProxy(server, {
+      allowedTargets: parseAllowedTargets(process.env.WS_ALLOWED_TARGETS),
+      allowedOrigins: corsOrigins,
+    });
   }
 
   const shutdown = createShutdown({ server, wss, client: Client, logger });
