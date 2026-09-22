@@ -107,6 +107,8 @@ Defina `ENABLE_WSPROXY=false` e `ENABLE_STATIC_SERVE=false` no `.env` para rodar
 
 ### 1. Instalar Dependencias
 
+Exige **Node.js 22.12 ou mais novo** (o `.nvmrc` fixa o 24). O servidor e escrito em ES modules sobre o Express 5.
+
 ```bash
 npm install
 ```
@@ -169,7 +171,7 @@ Starting roBrowser Remote Client... [development]
 📋 VALIDATION REPORT
 ================================================================================
 ✓ INFO:
-  Node.js: v18.12.0
+  Node.js: v24.14.0
   Valid GRF: data.grf (version 0x200, no DES)
 ================================================================================
 
@@ -482,6 +484,9 @@ para o cliente real, e nao so quando deixa de bater com a propria ideia de requi
 | `range.test.js` | Faixas de bytes para audio: 206, 416, `If-Range`, nunca comprimido |
 | `mojibake.test.js` | As duas grafias de um nome coreano e o caminho de volta para o coreano |
 | `wsproxy.test.js` | O proxy WebSocket contra um rAthena falso: repasse, buffer antes da conexao, allowlist, Close frame de verdade, limpeza |
+| `grf-loader.test.js` | O loader de GRF decodifica nomes coreanos com o iconv-lite — o que nao aconteceria se o pacote fosse importado como ES module (ver `src/utils/grfLoader.js`) |
+| `env.test.js` | O `.env` e lido da raiz do projeto qualquer que seja o diretorio atual, e opcional, e nunca sobrescreve uma variavel ja definida |
+| `node-version.test.js` | A checagem de inicializacao avisa abaixo da versao de Node do `engines` |
 | `containment.test.js` | Contencao de caminho em `Client.getFile()`, o funil de `/batch` e `GET /*` |
 | `rawimport.test.js` | Contencao no middleware de raw import |
 | `grf-header.test.js` | Parsing de header GRF 0x200 e 0x300 |
@@ -564,8 +569,8 @@ npm run convert:encoding
 ```text
 roBrowserLegacy-RemoteClient-JS/
 │
-├── index.js                    # Servidor principal (Express + WS proxy + static serve)
-├── start-prod.js               # Launcher de producao (define NODE_ENV=production)
+├── index.js                    # Ponto de entrada: validacao, indice do GRF, servidor HTTP, proxy WS
+├── start-prod.js               # Launcher de producao (define NODE_ENV=production e importa o index.js)
 ├── index.html                  # Pagina inicial servida na raiz do servidor
 ├── doctor.js                   # Ferramenta de diagnostico
 ├── prepare.js                  # Script de otimizacao pre-inicializacao
@@ -574,22 +579,31 @@ roBrowserLegacy-RemoteClient-JS/
 ├── .env.example                # Template de ambiente
 ├── path-mapping.json           # Mapeamentos de conversao de encoding gerados
 │
-├── src/                        # Codigo-fonte da aplicacao
+├── src/                        # Codigo-fonte da aplicacao (ES modules)
+│   ├── app.js                  # createApp(): o app Express, sem subir nada
+│   ├── env.js                  # Carrega o .env; primeiro import de todo ponto de entrada
+│   ├── wsProxy.js              # Proxy WebSocket -> TCP para o rAthena
 │   ├── config/
 │   │   └── configs.js          # Configuracoes do client e servidor
 │   ├── controllers/
 │   │   ├── clientController.js # Operacoes de arquivo, cache, indexacao, aquecimento
 │   │   └── grfController.js    # Extracao GRF usando @chicowall/grf-loader
 │   ├── middlewares/
-│   │   └── debugMiddleware.js  # Middleware de log de debug (apenas dev)
+│   │   ├── debugMiddleware.js  # Middleware de log de debug (apenas dev)
+│   │   └── rawImportMiddleware.js # Imports ?raw do mount estatico do roBrowser
 │   ├── routes/
-│   │   └── index.js            # Rotas com headers de cache HTTP
+│   │   └── index.js            # Servir assets, busca, /batch, /list-files
 │   ├── utils/
-│   │   ├── bmpUtils.js         # Conversao BMP para PNG
+│   │   ├── grfLoader.js        # @chicowall/grf-loader pelo build CommonJS
 │   │   ├── logger.js           # Utilitario de log (respeita NODE_ENV)
-│   │   └── LRUCache.js         # Implementacao do cache LRU
+│   │   ├── LRUCache.js         # Implementacao do cache LRU
+│   │   ├── mojibake.js         # As duas grafias de nomes coreanos, e a volta para o coreano
+│   │   ├── searchPool.js       # Roda as buscas numa worker, com prazo
+│   │   └── searchWorker.js     # A worker da busca
 │   └── validators/
 │       └── startupValidator.js # Validacao de inicializacao e encoding
+│
+├── tests/                      # npm test (node:test), sem precisar do cliente Ragnarok
 │
 ├── tools/                      # Ferramentas CLI para validacao e conversao
 │   ├── validate-grf.mjs        # Validacao de GRF unico
