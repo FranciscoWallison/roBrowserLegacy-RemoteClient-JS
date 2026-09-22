@@ -60,15 +60,6 @@ const RANGE_EXTENSIONS = new Set(['.mp3', '.wav', '.ogg']);
 // base64-encoded on top of this, so the socket sees roughly 4/3 of it.
 const MAX_BATCH_BYTES = 32 * 1024 * 1024;
 
-/**
- * Wrap an async handler so a rejected promise reaches Express instead of
- * surfacing as an unhandled rejection. Express 4 does not await handlers, so
- * without this an async throw crashes the process.
- */
-function asyncRoute(handler) {
-  return (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
-}
-
 // Check if client has valid cached version
 function checkConditionalRequest(req, etag) {
   const ifNoneMatch = req.headers['if-none-match'];
@@ -105,7 +96,8 @@ async function search(req, res) {
     res.send(Buffer.from(matches.join('\n'), 'latin1'));
   };
 
-  const filter = req.body && req.body.filter;
+  // Express 5 leaves req.body undefined when no parser matched the request's Content-Type.
+  const filter = req.body?.filter;
   if (!configs.CLIENT_ENABLESEARCH) return reply([], 'disabled');
   if (typeof filter !== 'string' || filter.length === 0) return reply([], 'invalid-filter');
   if (filter.length > MAX_FILTER_LENGTH) return reply([], 'filter-too-long');
@@ -128,13 +120,13 @@ async function search(req, res) {
   }
 }
 
-router.post('/', asyncRoute(search));
+router.post('/', search);
 // The route this server used to answer on. The client never called it, but other tools may.
-router.post('/search', asyncRoute(search));
+router.post('/search', search);
 
 // Batch file endpoint - fetch multiple files in a single request
-router.post('/batch', asyncRoute(async (req, res) => {
-  const { files } = req.body;
+router.post('/batch', async (req, res) => {
+  const files = req.body?.files;
   if (!Array.isArray(files) || files.length === 0 || files.length > 50) {
     return res.status(400).json({ error: 'Invalid files array (1-50 files)' });
   }
@@ -166,18 +158,19 @@ router.post('/batch', asyncRoute(async (req, res) => {
     res.set('X-Batch-Truncated', '1');
   }
   res.json(results);
-}));
+});
 
 // List files endpoint
-router.get('/list-files', asyncRoute(async (req, res) => {
+router.get('/list-files', (req, res) => {
   const files = Client.listFiles();
   res.set('Cache-Control', 'public, max-age=300'); // Cache for 5 minutes
   res.json(files);
-}));
+});
 
-// Wildcard route for file serving
-router.get('/*', asyncRoute(async (req, res) => {
-  const filePath = req.params[0];
+// Wildcard route for file serving. The braces make the wildcard optional, so this also answers "/".
+// Express 5 hands it over as an array of decoded segments; joined, it is the same path Express 4 gave.
+router.get('/{*splat}', async (req, res) => {
+  const filePath = (req.params.splat ?? []).join('/');
 
   // Serve index.html for root
   if (filePath === '') {
@@ -207,7 +200,7 @@ router.get('/*', asyncRoute(async (req, res) => {
 
   // ETag computed fresh, since the file was not in the cache
   sendAsset(req, res, filePath, fileContent, null);
-}));
+});
 
 /**
  * Answer with a game asset: 304 when the client's copy is current, a byte range when one is asked for

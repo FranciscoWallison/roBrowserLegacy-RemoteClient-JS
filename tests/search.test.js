@@ -166,6 +166,14 @@ test('missing or empty filter: empty answer', async () => {
   await assertEmptyAnswer('filter=', 'invalid-filter');
 });
 
+test('a body no parser reads: empty answer, not a 500', async () => {
+  // No Content-Type, so no body parser runs; Express 5 then leaves req.body undefined.
+  const res = await fetch(srv.base + '/', { method: 'POST', body: new Uint8Array(Buffer.from('filter=x')) });
+  assert.strictEqual(res.status, 200);
+  assert.strictEqual(await res.text(), '');
+  assert.strictEqual(res.headers.get('x-search-error'), 'invalid-filter');
+});
+
 test('a pattern that does not compile: empty answer', async () => {
   await assertEmptyAnswer('filter=' + encodeURIComponent('data\\([^'), 'invalid-pattern');
 });

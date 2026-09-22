@@ -15,6 +15,8 @@ import iconv from 'iconv-lite';
 import { startServer, rawGet } from './helpers/server.js';
 import { clientUrlPath, urlPathFor } from './helpers/roBrowser.js';
 import { resolveCorsOrigins, defaultCorsOrigins } from '../src/app.js';
+import Client from '../src/controllers/clientController.js';
+import logger from '../src/utils/logger.js';
 
 const ASCII = { name: 'data\\texture\\basepic\\loading01.txt', content: 'plain ascii payload '.repeat(20) };
 const KOREAN = { name: 'data\\texture\\유저인터페이스\\basic.bmp', content: 'korean-named payload '.repeat(20) };
@@ -144,6 +146,62 @@ test('POST /batch rejects more than 50 files', async () => {
     body: JSON.stringify({ files: Array.from({ length: 51 }, (_, i) => `data/${i}.bmp`) }),
   });
   assert.strictEqual(res.status, 400);
+});
+
+test('POST /batch with no body answers 400, not 500', async () => {
+  // Express 5 leaves req.body undefined when no parser ran; destructuring it used to throw.
+  const res = await fetch(dev.base + '/batch', { method: 'POST' });
+  assert.strictEqual(res.status, 400);
+});
+
+// ── Errors: the status line in plain text, never a stack trace ──
+
+test('a malformed JSON body answers 400 in plain text', async () => {
+  const res = await fetch(dev.base + '/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: '{"files": [',
+  });
+  assert.strictEqual(res.status, 400);
+  assert.match(res.headers.get('content-type'), /^text\/plain/);
+  assert.strictEqual(await res.text(), 'Bad Request');
+});
+
+test('a URL with broken percent-encoding answers 400 without a stack trace', async () => {
+  // Express's default handler answered this with an HTML page holding the stack trace and the absolute
+  // path of the checkout.
+  const res = await rawGet(dev.base, '/data/%E0%A4%A.bmp');
+  assert.strictEqual(res.status, 400);
+  assert.match(res.headers['content-type'], /^text\/plain/);
+  assert.strictEqual(res.body.toString(), 'Bad Request');
+});
+
+test('an error inside a route answers 500 without detail, is logged, and the server keeps serving', async () => {
+  const { getFile } = Client;
+  const { error } = logger;
+  const logged = [];
+  Client.getFile = async () => { throw new Error('boom: F:\\secret\\path'); };
+  logger.error = (...args) => logged.push(args);
+  try {
+    const res = await fetch(dev.base + '/data/never-cached.bmp');
+    assert.strictEqual(res.status, 500);
+    const body = await res.text();
+    assert.strictEqual(body, 'Internal Server Error');
+    assert.strictEqual(logged.length, 1, 'a 500 must be logged');
+  } finally {
+    Client.getFile = getFile;
+    logger.error = error;
+  }
+
+  const after = await fetch(dev.base + '/data/texture/basepic/loading01.txt');
+  assert.strictEqual(after.status, 200);
+});
+
+test('GET / serves the index page', async () => {
+  // The asset route's wildcard is optional in Express 5 syntax ('/{*splat}'), so it also answers "/".
+  const res = await fetch(dev.base + '/');
+  assert.strictEqual(res.status, 200);
+  assert.match(res.headers.get('content-type'), /^text\/html/);
 });
 
 test('files at the project root are not served', async () => {
