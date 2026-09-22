@@ -14,6 +14,7 @@ const path = require('node:path');
 const iconv = require('iconv-lite');
 const { startServer, rawGet } = require('./helpers/server');
 const { clientUrlPath, urlPathFor } = require('./helpers/roBrowser');
+const { resolveCorsOrigins, defaultCorsOrigins } = require('../src/app');
 
 const ASCII = { name: 'data\\texture\\basepic\\loading01.txt', content: 'plain ascii payload '.repeat(20) };
 const KOREAN = { name: 'data\\texture\\유저인터페이스\\basic.bmp', content: 'korean-named payload '.repeat(20) };
@@ -101,6 +102,27 @@ test('CORS: an allowed origin is echoed back', async () => {
 test('CORS: an origin outside the list gets no allow header', async () => {
   const res = await fetch(dev.base + '/data/texture/basepic/loading01.txt', { headers: { Origin: 'http://evil.example' } });
   assert.strictEqual(res.headers.get('access-control-allow-origin'), null);
+});
+
+test('CORS_ORIGINS: unset keeps the defaults, a list replaces them, "*" allows any origin', () => {
+  const clientUrl = 'http://localhost:3000';
+  assert.deepStrictEqual(resolveCorsOrigins(undefined, clientUrl), defaultCorsOrigins(clientUrl));
+  assert.deepStrictEqual(resolveCorsOrigins(' , ', clientUrl), defaultCorsOrigins(clientUrl));
+  assert.deepStrictEqual(
+    resolveCorsOrigins(' https://play.example.com/ , https://cdn.example.com ', clientUrl),
+    ['https://play.example.com', 'https://cdn.example.com']
+  );
+  assert.strictEqual(resolveCorsOrigins('https://a.example, *', clientUrl), '*');
+});
+
+test('CORS_ORIGINS="*": any origin gets an allow header', async () => {
+  const srv = await startServer({ corsOrigins: resolveCorsOrigins('*') });
+  try {
+    const res = await fetch(srv.base + '/api/health', { headers: { Origin: 'https://anywhere.example' } });
+    assert.strictEqual(res.headers.get('access-control-allow-origin'), '*');
+  } finally {
+    await srv.close();
+  }
 });
 
 test('POST /batch returns requested files as base64 and omits the missing ones', async () => {

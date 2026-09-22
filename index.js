@@ -5,7 +5,7 @@ const path = require('path');
 const logger = require('./src/utils/logger');
 const StartupValidator = require('./src/validators/startupValidator');
 const Client = require('./src/controllers/clientController');
-const { createApp, defaultCorsOrigins } = require('./src/app');
+const { createApp, resolveCorsOrigins } = require('./src/app');
 const { attachWsProxy, parseAllowedTargets } = require('./src/wsProxy');
 
 const port = process.env.PORT || 3338;
@@ -86,7 +86,7 @@ async function startServer() {
 
   const app = createApp({
     isProd: IS_PROD,
-    corsOrigins: defaultCorsOrigins(CLIENT_PUBLIC_URL),
+    corsOrigins: resolveCorsOrigins(process.env.CORS_ORIGINS, CLIENT_PUBLIC_URL),
     validationStatus,
     esrganInstance,
     staticRoot,
