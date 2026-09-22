@@ -1,11 +1,12 @@
 /**
  * The GRF loader must decode Korean names with iconv-lite.
  *
- * Only its CommonJS build has it: the ESM build's shim looks for a global `require`, which ES modules
- * lack, and falls back to TextDecoder('euc-kr'). That decoder knows EUC-KR only, not CP949's extension
- * to it, so any name using an extension syllable comes out wrong -- 똠 (0x8C 0x63) decodes to a C1
- * control followed by "c". On the bRO data.grf that broke 13 names. src/utils/grfLoader.js loads the
- * CommonJS build on purpose; these tests fail if anything imports the package directly again.
+ * Without it the loader falls back to TextDecoder('euc-kr'), which knows EUC-KR but not CP949's
+ * extension to it, so any name using an extension syllable comes out wrong -- 똠 (0x8C 0x63) decodes to
+ * a C1 control followed by "c". On the bRO data.grf that was 13 names the client could not reach.
+ *
+ * Until grf-loader 1.2.0 only its CommonJS build loaded iconv-lite, and src/utils/grfLoader.js went
+ * through `createRequire` to get it; the ES module build is fixed, and these tests hold either way.
  */
 import test from 'node:test';
 import assert from 'node:assert';
