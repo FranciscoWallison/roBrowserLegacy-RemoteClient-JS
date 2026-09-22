@@ -5,7 +5,7 @@
  * code line by line (roBrowserLegacy, src/Core/FileManager.js and src/Loaders/GameFile.js). A server that
  * only handles its own idea of a request passes its tests and fails the real client.
  */
-const iconv = require('iconv-lite');
+import iconv from 'iconv-lite';
 
 // The client reads GRF names as windows-1252 (CodepageManager, its default charset), and the browser
 // decodes a search response labelled ISO-8859-1 as windows-1252 too -- the Encoding Standard makes the
@@ -91,7 +91,7 @@ function grfViewerKeyword(keyword) {
   return new RegExp(`data\\\\([^(\\0\\)]+)?${escapedSearch}([^(\\0|\\\\)]+)?`, 'gi');
 }
 
-module.exports = {
+export {
   clientName,
   clientUrlPath,
   urlPathFor,

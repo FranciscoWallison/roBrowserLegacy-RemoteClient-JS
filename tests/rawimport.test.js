@@ -7,14 +7,15 @@
  * sibling directory whose name merely begins with the root -- and with rootDir at .../roBrowserLegacy
  * the sibling is .../roBrowserLegacy-RemoteClient-JS, this server's own checkout.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const createRawImportMiddleware = require('../src/middlewares/rawImportMiddleware');
+import createRawImportMiddleware from '../src/middlewares/rawImportMiddleware.js';
 
 // A sibling whose name starts with the root's name is the case the old guard let through.
-const ROOT = path.resolve(__dirname, '..', '..', 'roBrowserLegacy');
+const ROOT = path.resolve(import.meta.dirname, '..', '..', 'roBrowserLegacy');
 
 /**
  * Drive the middleware with a fake req/res and report what it did.
@@ -86,8 +87,8 @@ test('a request the middleware does not own is passed along untouched', async ()
 });
 
 test('the alias table covers every bare specifier the sources import', () => {
-  const source = require('node:fs').readFileSync(
-    path.resolve(__dirname, '..', 'src', 'middlewares', 'rawImportMiddleware.js'),
+  const source = fs.readFileSync(
+    path.resolve(import.meta.dirname, '..', 'src', 'middlewares', 'rawImportMiddleware.js'),
     'utf8'
   );
   // A browser cannot read package.json "exports", so every bare specifier needs a literal path here.

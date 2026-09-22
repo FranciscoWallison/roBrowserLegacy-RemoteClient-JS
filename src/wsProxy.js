@@ -4,9 +4,9 @@
  * The browser cannot open raw TCP, so roBrowser connects to ws://<server>/ws/<host>:<port> and this
  * relays bytes to rAthena's login, char and map servers.
  */
-const net = require('net');
-const WebSocket = require('ws');
-const logger = require('./utils/logger');
+import net from 'node:net';
+import { WebSocket, WebSocketServer } from 'ws';
+import logger from './utils/logger.js';
 
 // Allowed rAthena targets when WS_ALLOWED_TARGETS is not set: localhost only.
 const DEFAULT_ALLOWED_TARGETS = [
@@ -29,10 +29,10 @@ function parseAllowedTargets(value) {
  *
  * @param {import('http').Server} server
  * @param {{ allowedTargets: string[] }} options
- * @returns {WebSocket.Server} so callers (shutdown, tests) can close it
+ * @returns {WebSocketServer} so callers (shutdown, tests) can close it
  */
 function attachWsProxy(server, { allowedTargets }) {
-  const wss = new WebSocket.Server({ noServer: true });
+  const wss = new WebSocketServer({ noServer: true });
 
   server.on('upgrade', (req, socket, head) => {
     if (req.url.startsWith('/ws/')) {
@@ -123,4 +123,4 @@ function attachWsProxy(server, { allowedTargets }) {
   return wss;
 }
 
-module.exports = { attachWsProxy, parseAllowedTargets, DEFAULT_ALLOWED_TARGETS };
+export { attachWsProxy, parseAllowedTargets, DEFAULT_ALLOWED_TARGETS };

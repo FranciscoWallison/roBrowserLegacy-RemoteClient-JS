@@ -1,4 +1,4 @@
-module.exports = {
+export default {
 	DEBUG: process.env.NODE_ENV !== 'production',
 	CLIENT_RESPATH: "resources/",
 	CLIENT_DATAINI: "DATA.INI",

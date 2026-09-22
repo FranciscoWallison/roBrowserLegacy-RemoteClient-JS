@@ -2,7 +2,7 @@
  * LRU Cache implementation for file content caching
  * Provides O(1) get/set operations with automatic eviction
  */
-const crypto = require('crypto');
+import crypto from 'node:crypto';
 
 class LRUCache {
   constructor(maxSize = 5000, maxMemoryMB = 1024) {
@@ -110,4 +110,4 @@ class LRUCache {
   }
 }
 
-module.exports = LRUCache;
+export default LRUCache;

@@ -1,12 +1,17 @@
-require('dotenv').config();
+// Must stay the first import: the modules below read the environment as they load.
+import './src/env.js';
 
-const http = require('http');
-const path = require('path');
-const logger = require('./src/utils/logger');
-const StartupValidator = require('./src/validators/startupValidator');
-const Client = require('./src/controllers/clientController');
-const { createApp, resolveCorsOrigins } = require('./src/app');
-const { attachWsProxy, parseAllowedTargets } = require('./src/wsProxy');
+import http from 'node:http';
+import { createRequire } from 'node:module';
+import path from 'node:path';
+import { pathToFileURL } from 'node:url';
+import logger from './src/utils/logger.js';
+import StartupValidator from './src/validators/startupValidator.js';
+import Client from './src/controllers/clientController.js';
+import { createApp, resolveCorsOrigins } from './src/app.js';
+import { attachWsProxy, parseAllowedTargets } from './src/wsProxy.js';
+
+const require = createRequire(import.meta.url);
 
 const port = process.env.PORT || 3338;
 const CLIENT_PUBLIC_URL = process.env.CLIENT_PUBLIC_URL || 'http://localhost:8000';
@@ -20,9 +25,11 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 /**
  * Load the optional ESRGAN plugin, or return null.
  *
- * Resolve before requiring: require.resolve() does not execute the module, so a MODULE_NOT_FOUND here
+ * Resolve before importing: require.resolve() does not execute the module, so a MODULE_NOT_FOUND here
  * can only mean the plugin itself is absent. Loading it is then left unguarded on purpose -- a broken
- * install must surface as a real error, not be silently downgraded to "not installed".
+ * install must surface as a real error, not be silently downgraded to "not installed". The plugin is
+ * CommonJS; import() of its file URL gets module.exports as the default export, and would keep working
+ * if the plugin moved to ES modules.
  */
 async function loadEsrgan() {
   let pluginPath = null;
@@ -36,8 +43,8 @@ async function loadEsrgan() {
     return null;
   }
 
-  const createEsrganMiddleware = require(pluginPath);
-  const cachePath = path.resolve(__dirname, ESRGAN_CACHE_DIR);
+  const { default: createEsrganMiddleware } = await import(pathToFileURL(pluginPath).href);
+  const cachePath = path.resolve(import.meta.dirname, ESRGAN_CACHE_DIR);
   return createEsrganMiddleware({ cacheDir: cachePath, logger });
 }
 
@@ -80,7 +87,7 @@ async function startServer() {
 
   let staticRoot = null;
   if (ENABLE_STATIC_SERVE) {
-    staticRoot = path.resolve(__dirname, ROBROWSER_PATH);
+    staticRoot = path.resolve(import.meta.dirname, ROBROWSER_PATH);
     logger.debug(`Static serve enabled: ${staticRoot}`);
   }
 

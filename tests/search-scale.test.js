@@ -5,10 +5,10 @@
  * silently showed a truncated list. Kept in its own file: it needs an archive bigger than the cap, and
  * each test file runs in its own process with its own index.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const { startServer } = require('./helpers/server');
-const { clientSearch, localSearch } = require('./helpers/roBrowser');
+import test from 'node:test';
+import assert from 'node:assert';
+import { startServer } from './helpers/server.js';
+import { clientSearch, localSearch } from './helpers/roBrowser.js';
 
 const COUNT = 10050;
 const FILES = Array.from({ length: COUNT }, (_, i) => ({

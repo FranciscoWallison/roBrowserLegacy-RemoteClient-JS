@@ -9,13 +9,15 @@
  * asset requests before the GRF routes, and the static roBrowser mount has to see requests before the
  * catch-all asset route.
  */
-const express = require('express');
-const cors = require('cors');
-const compression = require('compression');
-const routes = require('./routes');
-const Client = require('./controllers/clientController');
-const debugMiddleware = require('./middlewares/debugMiddleware');
-const createRawImportMiddleware = require('./middlewares/rawImportMiddleware');
+import http from 'node:http';
+import express from 'express';
+import cors from 'cors';
+import compression from 'compression';
+import routes from './routes/index.js';
+import Client from './controllers/clientController.js';
+import debugMiddleware from './middlewares/debugMiddleware.js';
+import createRawImportMiddleware from './middlewares/rawImportMiddleware.js';
+import logger from './utils/logger.js';
 
 // Game asset extensions that benefit from compression
 const COMPRESSIBLE_GAME_EXTENSIONS = /\.(spr|act|rsm|gnd|gat|rsw|str|bmp|tga|pal|lub|lua|txt|xml)$/i;
@@ -81,7 +83,9 @@ function createApp({
     credentials: true,
   }));
   app.use(express.json());
-  app.use(express.urlencoded({ extended: true }));
+  // The client posts one flat field (filter=...); the qs parser's nested objects and arrays have no use
+  // here, only surface.
+  app.use(express.urlencoded({ extended: false }));
 
   // Compression middleware - compresses text AND binary game assets
   app.use(compression({
@@ -163,7 +167,18 @@ function createApp({
   // API routes (GRF file serving, search, etc.)
   app.use('/', routes);
 
+  // Last: errors from any middleware or route -- Express 5 forwards rejected promises here on its own.
+  // The answer is the status line in plain text. Express's default handler would send the stack trace
+  // as HTML outside production, and a status of its own choosing when a 4xx carries one (a malformed
+  // JSON body, a URL with broken percent-encoding) is what the client should see.
+  app.use((err, req, res, next) => {
+    const status = err.status || err.statusCode || 500;
+    if (status >= 500) logger.error(`${req.method} ${req.originalUrl} failed:`, err);
+    if (res.headersSent) return next(err);
+    res.status(status).type('text/plain').send(http.STATUS_CODES[status] || 'Error');
+  });
+
   return app;
 }
 
-module.exports = { createApp, defaultCorsOrigins, resolveCorsOrigins };
+export { createApp, defaultCorsOrigins, resolveCorsOrigins };

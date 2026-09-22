@@ -11,10 +11,10 @@
  * bounds many cheap evaluations, not one expensive one -- the cost is inside a single regex call
  * that nothing on that thread can interrupt. Hence the worker, which can be killed.
  */
-const test = require('node:test');
-const assert = require('node:assert');
+import test from 'node:test';
+import assert from 'node:assert';
 
-const searchPool = require('../src/utils/searchPool');
+import * as searchPool from '../src/utils/searchPool.js';
 
 // A name table as the search sees one: every name followed by a NUL.
 const TABLES = [

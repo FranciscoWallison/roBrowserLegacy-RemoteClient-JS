@@ -1,14 +1,14 @@
-const fs = require('fs');
-const path = require('path');
-const Grf = require('./grfController');
-const configs = require('../config/configs');
-const LRUCache = require('../utils/LRUCache');
-const logger = require('../utils/logger');
-const searchPool = require('../utils/searchPool');
-const { decodeMojibake } = require('../utils/mojibake');
-const iconv = require('iconv-lite');
+import fs from 'node:fs';
+import path from 'node:path';
+import iconv from 'iconv-lite';
+import Grf from './grfController.js';
+import configs from '../config/configs.js';
+import LRUCache from '../utils/LRUCache.js';
+import logger from '../utils/logger.js';
+import * as searchPool from '../utils/searchPool.js';
+import { decodeMojibake } from '../utils/mojibake.js';
 
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+const PROJECT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 
 /**
  * Top-level directories the client is allowed to read from disk.
@@ -69,7 +69,7 @@ let cachedSearchTables = null;
 
 // Path mapping for encoding conversion (loaded from path-mapping.json if exists)
 let pathMapping = null;
-const pathMappingFile = path.join(__dirname, '..', '..', 'path-mapping.json');
+const pathMappingFile = path.join(PROJECT_ROOT, 'path-mapping.json');
 if (fs.existsSync(pathMappingFile)) {
   try {
     pathMapping = JSON.parse(fs.readFileSync(pathMappingFile, 'utf-8'));
@@ -80,7 +80,7 @@ if (fs.existsSync(pathMappingFile)) {
 }
 
 // Missing files log (async write queue)
-const missingFilesLog = path.join(__dirname, '..', '..', 'logs', 'missing-files.log');
+const missingFilesLog = path.join(PROJECT_ROOT, 'logs', 'missing-files.log');
 const missingFilesSet = new Set();
 let lastNotificationTime = 0;
 const NOTIFICATION_COOLDOWN = 60000; // 1 minute cooldown between notifications
@@ -124,7 +124,7 @@ const Client = {
   async init({ dataIniPath } = {}) {
     const startTime = Date.now();
     this.data_ini = dataIniPath
-      || path.join(__dirname, '..', '..', configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+      || path.join(PROJECT_ROOT, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
     const grfDir = path.dirname(this.data_ini);
 
     if (!fs.existsSync(this.data_ini)) {
@@ -590,4 +590,4 @@ function parseIni(data) {
   return value;
 }
 
-module.exports = Client;
+export default Client;

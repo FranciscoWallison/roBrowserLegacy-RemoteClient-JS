@@ -110,6 +110,8 @@ Set `ENABLE_WSPROXY=false` and `ENABLE_STATIC_SERVE=false` in `.env` to run in l
 
 ### 1. Install Dependencies
 
+Requires **Node.js 22.12 or newer** (`.nvmrc` pins 24). The server is written as ES modules on Express 5.
+
 ```bash
 npm install
 ```
@@ -172,7 +174,7 @@ Starting roBrowser Remote Client... [development]
 📋 VALIDATION REPORT
 ================================================================================
 ✓ INFO:
-  Node.js: v18.12.0
+  Node.js: v24.14.0
   Valid GRF: data.grf (version 0x200, no DES)
 ================================================================================
 
@@ -597,6 +599,9 @@ matching its own idea of a request.
 | `range.test.js` | Byte ranges for audio: 206, 416, `If-Range`, never compressed |
 | `mojibake.test.js` | The two spellings of a Korean name and the way back to Korean |
 | `wsproxy.test.js` | The WebSocket proxy against a fake rAthena: relay, pre-connect buffering, allowlist, a real Close frame, cleanup |
+| `grf-loader.test.js` | The GRF loader decodes Korean names with iconv-lite — it would not if the package were imported as an ES module (see `src/utils/grfLoader.js`) |
+| `env.test.js` | `.env` is read from the project root whatever the current directory, is optional, and never overrides a variable already set |
+| `node-version.test.js` | The startup check warns below the Node version in `engines` |
 | `containment.test.js` | Path containment in `Client.getFile()`, the funnel for `/batch` and `GET /*` |
 | `rawimport.test.js` | Containment in the raw-import middleware |
 | `grf-header.test.js` | GRF header parsing for 0x200 and 0x300 |
@@ -679,8 +684,8 @@ npm run convert:encoding
 ```text
 roBrowserLegacy-RemoteClient-JS/
 │
-├── index.js                    # Main server (Express + WS proxy + static serve)
-├── start-prod.js               # Production launcher (sets NODE_ENV=production)
+├── index.js                    # Entry point: validation, GRF index, HTTP server, WS proxy
+├── start-prod.js               # Production launcher (sets NODE_ENV=production, then imports index.js)
 ├── index.html                  # Home page served at the server root
 ├── doctor.js                   # Diagnostic tool for troubleshooting
 ├── prepare.js                  # Pre-startup optimization script
@@ -689,22 +694,31 @@ roBrowserLegacy-RemoteClient-JS/
 ├── .env.example                # Environment template
 ├── path-mapping.json           # Generated encoding conversion mappings
 │
-├── src/                        # Application source code
+├── src/                        # Application source code (ES modules)
+│   ├── app.js                  # createApp(): the Express app, without starting anything
+│   ├── env.js                  # Loads .env; the first import of every entry point
+│   ├── wsProxy.js              # WebSocket -> TCP proxy for rAthena
 │   ├── config/
 │   │   └── configs.js          # Client and server settings
 │   ├── controllers/
 │   │   ├── clientController.js # File operations, caching, indexing, warm-up
 │   │   └── grfController.js    # GRF extraction using @chicowall/grf-loader
 │   ├── middlewares/
-│   │   └── debugMiddleware.js  # Debug logging middleware (dev only)
+│   │   ├── debugMiddleware.js  # Debug logging middleware (dev only)
+│   │   └── rawImportMiddleware.js # ?raw imports for the static roBrowser mount
 │   ├── routes/
-│   │   └── index.js            # Routes with HTTP cache headers
+│   │   └── index.js            # Asset serving, search, /batch, /list-files
 │   ├── utils/
-│   │   ├── bmpUtils.js         # BMP to PNG conversion
+│   │   ├── grfLoader.js        # @chicowall/grf-loader through its CommonJS build
 │   │   ├── logger.js           # Logger utility (respects NODE_ENV)
-│   │   └── LRUCache.js         # LRU cache implementation
+│   │   ├── LRUCache.js         # LRU cache implementation
+│   │   ├── mojibake.js         # The two spellings of Korean names, and back to Korean
+│   │   ├── searchPool.js       # Runs searches in a worker, with a deadline
+│   │   └── searchWorker.js     # The search worker
 │   └── validators/
 │       └── startupValidator.js # Startup and encoding validation
+│
+├── tests/                      # npm test (node:test), no Ragnarok client needed
 │
 ├── tools/                      # CLI tools for validation and conversion
 │   ├── validate-grf.mjs        # Single GRF validation

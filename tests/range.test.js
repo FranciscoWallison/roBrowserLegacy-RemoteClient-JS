@@ -5,9 +5,9 @@
  * `Range: bytes=0-` and seek with further ranges; a server that ignores them makes seeking impossible, and
  * some browsers will not play the file at all.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const { startServer, rawGet } = require('./helpers/server');
+import test from 'node:test';
+import assert from 'node:assert';
+import { startServer, rawGet } from './helpers/server.js';
 
 // Bytes 0-255 repeated: compressible enough for the GRF builder, and any slice is easy to predict.
 const AUDIO = Buffer.from(Array.from({ length: 4096 }, (_, i) => i % 256));

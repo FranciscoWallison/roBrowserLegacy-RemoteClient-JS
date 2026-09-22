@@ -12,9 +12,9 @@
 
  
 
-const fs = require('fs');
+import fs from 'node:fs';
 
-const path = require('path');
+import path from 'node:path';
 
  
 
@@ -244,7 +244,7 @@ if (args.length === 0) {
 
   // Se não passar argumento, tenta debugar todos os GRFs em resources/
 
-  const resourcesPath = path.join(__dirname, 'resources');
+  const resourcesPath = path.join(import.meta.dirname, 'resources');
 
   if (fs.existsSync(resourcesPath)) {
 

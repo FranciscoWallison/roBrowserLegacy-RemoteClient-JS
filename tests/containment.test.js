@@ -3,21 +3,21 @@
  *
  * getFile() is the funnel for both network-reachable file routes -- POST /batch and the GET /*
  * wildcard -- so every path the client can name arrives here. It used to build its local path with
- * path.join(__dirname, '..', '..', filePath) and read it with no normalisation and no containment
+ * path.join(import.meta.dirname, '..', '..', filePath) and read it with no normalisation and no containment
  * check, which made the repository root a document root: .env, .git/config and the server source
  * were all downloadable, no "../" required.
  *
  * These tests need no GRF. Requests that reach the archive lookup simply return null when no
  * archive is loaded, which is the same "nothing served" outcome the assertions check for.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const fs = require('node:fs');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import path from 'node:path';
 
-const Client = require('../src/controllers/clientController');
+import Client from '../src/controllers/clientController.js';
 
-const ROOT = path.resolve(__dirname, '..');
+const ROOT = path.resolve(import.meta.dirname, '..');
 const HAPPY_REL = 'data/containment-fixture.txt';
 const HAPPY_ABS = path.join(ROOT, 'data', 'containment-fixture.txt');
 const HAPPY_BODY = 'served-from-an-asset-directory';

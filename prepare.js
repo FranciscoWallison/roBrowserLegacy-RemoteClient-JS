@@ -18,8 +18,15 @@
  * exist yet.
  */
 
-const fs = require('fs');
-const path = require('path');
+import './src/env.js';
+
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import configs from './src/config/configs.js';
+import StartupValidator from './src/validators/startupValidator.js';
+
+const ROOT = import.meta.dirname;
 
 const args = process.argv.slice(2);
 const quickMode = args.includes('--quick');
@@ -56,11 +63,8 @@ async function step1_validateConfig() {
   log('Checking configuration...', 'info');
 
   try {
-    require('dotenv').config();
-    const configs = require('./src/config/configs');
-
     // Check required paths
-    const dataIniPath = path.join(__dirname, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+    const dataIniPath = path.join(ROOT, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
     if (!fs.existsSync(dataIniPath)) {
       addResult('config', 'error', `DATA.INI not found: ${dataIniPath}`, Date.now() - stepStart);
       return false;
@@ -94,7 +98,7 @@ async function step1_validateConfig() {
     // Check GRF files exist
     let allExist = true;
     for (const grf of grfFiles) {
-      const grfPath = path.join(__dirname, configs.CLIENT_RESPATH, grf);
+      const grfPath = path.join(ROOT, configs.CLIENT_RESPATH, grf);
       if (!fs.existsSync(grfPath)) {
         log(`GRF file not found: ${grf}`, 'error');
         allExist = false;
@@ -125,7 +129,7 @@ async function step2_generatePathMapping() {
 
   try {
     // Check if convert-encoding.mjs exists
-    const convertScript = path.join(__dirname, 'tools', 'convert-encoding.mjs');
+    const convertScript = path.join(ROOT, 'tools', 'convert-encoding.mjs');
     if (!fs.existsSync(convertScript)) {
       addResult('pathMapping', 'warning', 'convert-encoding.mjs not found', Date.now() - stepStart);
       log('Skipping (convert-encoding.mjs not found)', 'warning');
@@ -133,11 +137,9 @@ async function step2_generatePathMapping() {
     }
 
     // Run the convert script
-    const { spawn } = require('child_process');
-
     return new Promise((resolve) => {
       const child = spawn('node', [convertScript], {
-        cwd: __dirname,
+        cwd: ROOT,
         stdio: verbose ? 'inherit' : 'pipe',
       });
 
@@ -152,7 +154,7 @@ async function step2_generatePathMapping() {
       child.on('close', (code) => {
         if (code === 0) {
           // Check if path-mapping.json was created
-          const mappingFile = path.join(__dirname, 'path-mapping.json');
+          const mappingFile = path.join(ROOT, 'path-mapping.json');
           if (fs.existsSync(mappingFile)) {
             const mapping = JSON.parse(fs.readFileSync(mappingFile, 'utf-8'));
             const count = Object.keys(mapping.paths || {}).length;
@@ -190,7 +192,9 @@ async function step3_buildIndex() {
 
   try {
     // Initialize client to build index
-    const Client = require('./src/controllers/clientController');
+    // Imported here rather than at the top: the client reads path-mapping.json as it loads, and step 2
+    // has only just written it.
+    const { default: Client } = await import('./src/controllers/clientController.js');
     await Client.init();
 
     const stats = Client.getIndexStats ? Client.getIndexStats() : { totalFiles: 0 };
@@ -216,12 +220,10 @@ async function step4_validateEncoding() {
   log('Validating encoding (this may take a while)...', 'info');
 
   try {
-    const StartupValidator = require('./src/validators/startupValidator');
     const validator = new StartupValidator();
 
     // Get GRF files
-    const configs = require('./src/config/configs');
-    const dataIniPath = path.join(__dirname, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+    const dataIniPath = path.join(ROOT, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
     const dataIni = fs.readFileSync(dataIniPath, 'utf-8');
     const grfFiles = [];
     let inDataSection = false;
@@ -238,7 +240,7 @@ async function step4_validateEncoding() {
       if (inDataSection) {
         const match = line.match(/^\s*\d+\s*=\s*(.+?)\s*$/);
         if (match) {
-          grfFiles.push(path.join(__dirname, configs.CLIENT_RESPATH, match[1]));
+          grfFiles.push(path.join(ROOT, configs.CLIENT_RESPATH, match[1]));
         }
       }
     }
@@ -273,7 +275,7 @@ async function step5_createLogsDir() {
   log('Setting up logging directories...', 'info');
 
   try {
-    const logsDir = path.join(__dirname, 'logs');
+    const logsDir = path.join(ROOT, 'logs');
     if (!fs.existsSync(logsDir)) {
       fs.mkdirSync(logsDir, { recursive: true });
       addResult('logs', 'success', 'Created logs directory', Date.now() - stepStart);
