@@ -70,17 +70,4 @@ function buildGrf(outPath, files) {
   fs.writeFileSync(outPath, Buffer.concat([header, ...bodies, tableHeader, packedTable]));
 }
 
-/**
- * The URL path roBrowser builds for an archive name.
- *
- * The client holds Korean names as their CP949 bytes read as Latin-1 ("mojibake"), then
- * FileManager.getHTTP turns backslashes into slashes and runs encodeURIComponent on each segment
- * (roBrowserLegacy src/Core/FileManager.js:247-250). Reproducing that exactly is the point: a server
- * that only handles its own idea of the URL passes its tests and fails the real client.
- */
-function clientUrlPath(name) {
-  const mojibake = iconv.encode(name, 'cp949').toString('latin1');
-  return '/' + mojibake.split('\\').map(encodeURIComponent).join('/');
-}
-
-module.exports = { buildGrf, clientUrlPath };
+module.exports = { buildGrf };

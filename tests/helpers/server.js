@@ -9,6 +9,29 @@ const os = require('os');
 const path = require('path');
 const http = require('http');
 const { buildGrf } = require('./grfBuilder');
+const { clientName } = require('./roBrowser');
+
+const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+
+/**
+ * Refuse to run when the working tree holds a file under a test archive name.
+ *
+ * The server reads <project>/data before any GRF, and AutoExtract fills that folder with every file a
+ * running game requests. A test name that exists there is answered from disk, with the real asset --
+ * a failure that looks like a server bug. Both spellings are checked: AutoExtract writes the path as
+ * requested, which is the client's.
+ */
+function assertNotShadowed(files) {
+  for (const { name } of files) {
+    for (const spelling of [name, clientName(name)]) {
+      const onDisk = path.join(PROJECT_ROOT, ...spelling.split('\\'));
+      if (fs.existsSync(onDisk)) {
+        throw new Error(`${onDisk} exists, so the server would serve it instead of the test archive's ` +
+          `"${name}". Rename the test file, or move that file out of the working tree.`);
+      }
+    }
+  }
+}
 
 /**
  * @param {object} [appOptions] passed to createApp()
@@ -25,6 +48,7 @@ async function startServer(appOptions = {}, { files } = {}) {
   Client.AutoExtract = false;
 
   if (files) {
+    assertNotShadowed(files);
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'remoteclient-test-'));
     buildGrf(path.join(dir, 'test.grf'), files);
     fs.writeFileSync(path.join(dir, 'DATA.INI'), '[Data]\n0=test.grf\n');

@@ -5,21 +5,8 @@ const configs = require('../config/configs');
 const LRUCache = require('../utils/LRUCache');
 const logger = require('../utils/logger');
 const searchPool = require('../utils/searchPool');
+const { decodeMojibake } = require('../utils/mojibake');
 const iconv = require('iconv-lite');
-
-/**
- * Convert mojibake (CP949 bytes interpreted as Latin-1) back to proper Korean Unicode.
- * roBrowser sends paths like "À¯ÀúÀÎÅÍÆäÀÌ½º" which is CP949 bytes of "유저인터페이스"
- * read as ISO-8859-1. We reverse this by encoding as Latin-1 then decoding as CP949.
- */
-function decodeMojibake(str) {
-  try {
-    const latin1Buf = iconv.encode(str, 'iso-8859-1');
-    return iconv.decode(latin1Buf, 'cp949');
-  } catch (e) {
-    return str;
-  }
-}
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
