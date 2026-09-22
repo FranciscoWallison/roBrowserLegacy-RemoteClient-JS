@@ -6,11 +6,11 @@
  * worker is terminated -- which is the whole point, since a catastrophic backtrack cannot be
  * interrupted any other way -- and a fresh one is seeded on the next call.
  */
-const path = require('node:path');
-const { Worker } = require('node:worker_threads');
-const logger = require('./logger');
+import path from 'node:path';
+import { Worker } from 'node:worker_threads';
+import logger from './logger.js';
 
-const WORKER_PATH = path.join(__dirname, 'searchWorker.js');
+const WORKER_PATH = path.join(import.meta.dirname, 'searchWorker.js');
 
 let worker = null;
 let seededWith = null;
@@ -110,4 +110,4 @@ function invalidate() {
   if (worker) discardWorker('index rebuilt');
 }
 
-module.exports = { search, invalidate };
+export { search, invalidate };

@@ -12,9 +12,9 @@
  *    `import X from '/src/Core/X.js'`.
  */
 
-const fs = require('fs');
-const path = require('path');
-const crypto = require('crypto');
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
 
 /**
  * Import alias map — mirrors the Vite config resolve.alias and package.json deps.
@@ -230,4 +230,4 @@ function createRawImportMiddleware(rootDir) {
   };
 }
 
-module.exports = createRawImportMiddleware;
+export default createRawImportMiddleware;

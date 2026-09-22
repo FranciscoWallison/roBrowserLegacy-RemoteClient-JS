@@ -9,12 +9,12 @@
  * Until this contract was implemented, POST / fell through to Express's 404 page, which the client split
  * into eleven "file names" of HTML.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const iconv = require('iconv-lite');
-const configs = require('../src/config/configs');
-const { startServer } = require('./helpers/server');
-const {
+import test from 'node:test';
+import assert from 'node:assert';
+import iconv from 'iconv-lite';
+import configs from '../src/config/configs.js';
+import { startServer } from './helpers/server.js';
+import {
   clientName,
   clientSearch,
   localSearch,
@@ -22,7 +22,7 @@ const {
   MAP_VIEWER,
   grfViewerDirectory,
   grfViewerKeyword,
-} = require('./helpers/roBrowser');
+} from './helpers/roBrowser.js';
 
 const file = (name) => ({ name, content: `payload of ${name} `.repeat(8) });
 

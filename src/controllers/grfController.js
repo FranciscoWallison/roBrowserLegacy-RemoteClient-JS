@@ -1,10 +1,9 @@
 // src/controllers/grfController.js
-const { GrfNode } = require("@chicowall/grf-loader");
-
-const fs = require("fs");
-const path = require("path");
-const iconv = require("iconv-lite");
-const logger = require("../utils/logger");
+import fs from "node:fs";
+import path from "node:path";
+import iconv from "iconv-lite";
+import { GrfNode } from "../utils/grfLoader.js";
+import logger from "../utils/logger.js";
 
 const NUL = Buffer.from([0]);
 
@@ -76,4 +75,4 @@ class Grf {
 	}
 }
 
-module.exports = Grf;
+export default Grf;

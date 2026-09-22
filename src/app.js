@@ -9,13 +9,13 @@
  * asset requests before the GRF routes, and the static roBrowser mount has to see requests before the
  * catch-all asset route.
  */
-const express = require('express');
-const cors = require('cors');
-const compression = require('compression');
-const routes = require('./routes');
-const Client = require('./controllers/clientController');
-const debugMiddleware = require('./middlewares/debugMiddleware');
-const createRawImportMiddleware = require('./middlewares/rawImportMiddleware');
+import express from 'express';
+import cors from 'cors';
+import compression from 'compression';
+import routes from './routes/index.js';
+import Client from './controllers/clientController.js';
+import debugMiddleware from './middlewares/debugMiddleware.js';
+import createRawImportMiddleware from './middlewares/rawImportMiddleware.js';
 
 // Game asset extensions that benefit from compression
 const COMPRESSIBLE_GAME_EXTENSIONS = /\.(spr|act|rsm|gnd|gat|rsw|str|bmp|tga|pal|lub|lua|txt|xml)$/i;
@@ -166,4 +166,4 @@ function createApp({
   return app;
 }
 
-module.exports = { createApp, defaultCorsOrigins, resolveCorsOrigins };
+export { createApp, defaultCorsOrigins, resolveCorsOrigins };

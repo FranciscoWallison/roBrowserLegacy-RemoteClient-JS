@@ -9,7 +9,7 @@
  * deadline and terminates this thread outright when it overruns. That is the only reliable way to
  * bound an untrusted regex without a linear-time engine.
  */
-const { parentPort } = require('node:worker_threads');
+import { parentPort } from 'node:worker_threads';
 
 /** @type {string[]} The name tables to match against, one per GRF, sent once by the main thread. */
 let tables = [];

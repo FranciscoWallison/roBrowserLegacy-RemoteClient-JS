@@ -4,12 +4,12 @@
  * A plain TCP echo server stands in for the login/char/map servers, so these run anywhere. The pattern
  * follows tests/wsproxy.rs in Flux159/roBrowserLegacy-RemoteClient-Rust.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const net = require('node:net');
-const http = require('node:http');
-const WebSocket = require('ws');
-const { attachWsProxy, parseAllowedTargets, DEFAULT_ALLOWED_TARGETS } = require('../src/wsProxy');
+import test from 'node:test';
+import assert from 'node:assert';
+import net from 'node:net';
+import http from 'node:http';
+import WebSocket from 'ws';
+import { attachWsProxy, parseAllowedTargets, DEFAULT_ALLOWED_TARGETS } from '../src/wsProxy.js';
 
 let rathena; // fake game server
 let rathenaPort;

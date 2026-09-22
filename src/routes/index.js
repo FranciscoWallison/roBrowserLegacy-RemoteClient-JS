@@ -1,11 +1,12 @@
-const express = require('express');
-const path = require('path');
-const fs = require('fs');
-const crypto = require('crypto');
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import path from 'node:path';
+import express from 'express';
+import Client from '../controllers/clientController.js';
+import configs from '../config/configs.js';
+import { toLatin1 } from '../utils/mojibake.js';
+
 const router = express.Router();
-const Client = require('../controllers/clientController');
-const configs = require('../config/configs');
-const { toLatin1 } = require('../utils/mojibake');
 
 // Cache duration settings (in seconds)
 const CACHE_DURATIONS = {
@@ -78,7 +79,7 @@ function checkConditionalRequest(req, etag) {
 }
 
 // The GRF index is built by index.js, which awaits it before listening. It used to be started here, as a
-// side effect of requiring this module -- which also made the app impossible to import without parsing
+// side effect of loading this module -- which also made the app impossible to import without parsing
 // every configured GRF.
 
 /**
@@ -180,7 +181,7 @@ router.get('/*', asyncRoute(async (req, res) => {
 
   // Serve index.html for root
   if (filePath === '') {
-    const indexPath = path.join(__dirname, '..', '..', 'index.html');
+    const indexPath = path.join(import.meta.dirname, '..', '..', 'index.html');
     if (!fs.existsSync(indexPath)) {
       return res.status(404).send('index.html not found. Please create an index.html file in the project root.');
     }
@@ -247,4 +248,4 @@ function sendAsset(req, res, filePath, content, cachedETag) {
   return res.send(content);
 }
 
-module.exports = router;
+export default router;

@@ -6,9 +6,9 @@
  * Run with deep encoding: npm run doctor -- --deep
  */
 
-require('dotenv').config();
+import './src/env.js';
 
-const StartupValidator = require('./src/validators/startupValidator');
+import StartupValidator from './src/validators/startupValidator.js';
 
 // Check for --deep flag
 const deepEncoding = process.argv.includes('--deep');

@@ -6,15 +6,15 @@
  * Express app on an ephemeral port, backed by a synthetic GRF (tests/helpers/grfBuilder.js), so they
  * need no Ragnarok client and exercise what a browser would.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
-const iconv = require('iconv-lite');
-const { startServer, rawGet } = require('./helpers/server');
-const { clientUrlPath, urlPathFor } = require('./helpers/roBrowser');
-const { resolveCorsOrigins, defaultCorsOrigins } = require('../src/app');
+import test from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import iconv from 'iconv-lite';
+import { startServer, rawGet } from './helpers/server.js';
+import { clientUrlPath, urlPathFor } from './helpers/roBrowser.js';
+import { resolveCorsOrigins, defaultCorsOrigins } from '../src/app.js';
 
 const ASCII = { name: 'data\\texture\\basepic\\loading01.txt', content: 'plain ascii payload '.repeat(20) };
 const KOREAN = { name: 'data\\texture\\유저인터페이스\\basic.bmp', content: 'korean-named payload '.repeat(20) };

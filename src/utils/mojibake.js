@@ -13,7 +13,7 @@
  * contain such a byte -- "똠양꿍.spr" is "Œc¾ç²á.spr" -- and they were unreachable in the windows-1252
  * spelling.
  */
-const iconv = require('iconv-lite');
+import iconv from 'iconv-lite';
 
 /**
  * The printable windows-1252 characters for bytes 0x80-0x9F, mapped back to their byte. The five bytes
@@ -76,4 +76,4 @@ function decodeMojibake(str) {
   return bytes ? iconv.decode(bytes, 'cp949') : str;
 }
 
-module.exports = { decodeMojibake, toLatin1 };
+export { decodeMojibake, toLatin1 };

@@ -10,15 +10,15 @@
  * Both halves matter here: the synthetic headers pin the field arithmetic, and the real fixtures prove
  * an actual archive of each version parses end to end. See tests/fixtures/README.md for their provenance.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const fs = require('node:fs');
-const os = require('node:os');
-const path = require('node:path');
+import test from 'node:test';
+import assert from 'node:assert';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-const StartupValidator = require('../src/validators/startupValidator');
+import StartupValidator from '../src/validators/startupValidator.js';
 
-const FIXTURES = path.join(__dirname, 'fixtures');
+const FIXTURES = path.join(import.meta.dirname, 'fixtures');
 
 /** Build a 46-byte GRF header. `tableOffset` is written as u64 when `big` is set (0x300 layout). */
 function buildHeader({ tableOffset, seed = 0, nFiles, version, big = false }) {

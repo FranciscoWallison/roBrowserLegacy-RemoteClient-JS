@@ -1,10 +1,10 @@
 /**
  * The two spellings of a Korean GRF name, and the way back to Korean.
  */
-const test = require('node:test');
-const assert = require('node:assert');
-const iconv = require('iconv-lite');
-const { decodeMojibake, toLatin1 } = require('../src/utils/mojibake');
+import test from 'node:test';
+import assert from 'node:assert';
+import iconv from 'iconv-lite';
+import { decodeMojibake, toLatin1 } from '../src/utils/mojibake.js';
 
 // 똠테스트: its first byte, 0x8C, is a C1 control in Latin-1 and "Œ" in windows-1252.
 const KOREAN = '똠테스트';

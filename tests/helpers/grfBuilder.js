@@ -14,9 +14,9 @@
  *
  * Both tableOffset and each entry's offset are relative to the end of the header.
  */
-const fs = require('fs');
-const zlib = require('zlib');
-const iconv = require('iconv-lite');
+import fs from 'fs';
+import zlib from 'zlib';
+import iconv from 'iconv-lite';
 
 const HEADER_SIZE = 46;
 
@@ -70,4 +70,4 @@ function buildGrf(outPath, files) {
   fs.writeFileSync(outPath, Buffer.concat([header, ...bodies, tableHeader, packedTable]));
 }
 
-module.exports = { buildGrf };
+export { buildGrf };

@@ -1,8 +1,8 @@
-const configs = require('../config/configs');
+import configs from '../config/configs.js';
 
-module.exports = (req, res, next) => {
+export default function debugMiddleware(req, res, next) {
   if (configs.DEBUG) {
     console.log(`Request: ${req.method} ${req.url}`);
   }
   next();
-};
+}

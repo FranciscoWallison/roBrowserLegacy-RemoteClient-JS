@@ -4,15 +4,17 @@
  * node --test runs each test file in its own process, so the clientController singleton (file index,
  * LRU cache) is private to the file that uses this helper.
  */
-const fs = require('fs');
-const os = require('os');
-const path = require('path');
-const http = require('http');
-const { buildGrf } = require('./grfBuilder');
-const { clientName } = require('./roBrowser');
-const searchPool = require('../../src/utils/searchPool');
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
+import http from 'http';
+import { buildGrf } from './grfBuilder.js';
+import { clientName } from './roBrowser.js';
+import * as searchPool from '../../src/utils/searchPool.js';
+import Client from '../../src/controllers/clientController.js';
+import { createApp } from '../../src/app.js';
 
-const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
+const PROJECT_ROOT = path.resolve(import.meta.dirname, '..', '..');
 
 /**
  * Refuse to run when the working tree holds a file under a test archive name.
@@ -40,9 +42,6 @@ function assertNotShadowed(files) {
  * @returns {Promise<{ base: string, server: http.Server, close: () => Promise<void> }>}
  */
 async function startServer(appOptions = {}, { files } = {}) {
-  const Client = require('../../src/controllers/clientController');
-  const { createApp } = require('../../src/app');
-
   // AutoExtract would write every GRF hit into the repository's data/ folder -- polluting the working
   // tree, and on the next run serving that copy instead of the archive, so tests would pass for the
   // wrong reason.
@@ -90,4 +89,4 @@ function rawGet(base, rawPath, headers = {}) {
   });
 }
 
-module.exports = { startServer, rawGet };
+export { startServer, rawGet };

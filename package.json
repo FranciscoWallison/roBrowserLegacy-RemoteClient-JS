@@ -3,6 +3,7 @@
 	"version": "1.0.0",
 	"description": "roBrowser and Express server unified project",
 	"main": "index.js",
+	"type": "module",
 	"engines": {
 		"node": ">=22.12"
 	},
@@ -27,7 +28,6 @@
 		"@chicowall/grf-loader": "^1.1.0",
 		"compression": "^1.8.1",
 		"cors": "^2.8.5",
-		"dotenv": "^17.2.3",
 		"express": "^4.17.1",
 		"iconv-lite": "^0.7.1",
 		"ws": "^8.19.0"

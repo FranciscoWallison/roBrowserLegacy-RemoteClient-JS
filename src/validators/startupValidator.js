@@ -1,8 +1,13 @@
-const fs = require("fs");
-const path = require("path");
-const { execSync } = require("child_process");
-const zlib = require("zlib");
-const { TextDecoder } = require("util");
+import { execSync } from "node:child_process";
+import fs from "node:fs";
+import { createRequire } from "node:module";
+import path from "node:path";
+import { TextDecoder } from "node:util";
+import zlib from "node:zlib";
+import configs from "../config/configs.js";
+import grfLoader, { GrfNode } from "../utils/grfLoader.js";
+
+const require = createRequire(import.meta.url);
 
 /**
  * Startup validation system
@@ -501,8 +506,6 @@ class StartupValidator {
    * - Then tries to load with @chicowall/grf-loader (real compatibility test)
    */
   async validateGrfFormat(grfPath) {
-    const { GrfNode } = require("@chicowall/grf-loader");
-
     let fd = null;
     let testFd = null;
 
@@ -632,9 +635,6 @@ class StartupValidator {
    * Validates ALL files in GRFs and returns detailed encoding statistics
    */
   async validateEncodingDeep(grfFiles) {
-    const grfLoader = require("@chicowall/grf-loader");
-    const { GrfNode } = grfLoader;
-
     // These functions may or may not be exported depending on version
     const isMojibake = grfLoader.isMojibake || (() => false);
     const fixMojibake = grfLoader.fixMojibake || ((s) => s);
@@ -865,7 +865,6 @@ class StartupValidator {
     results.NODE_ENV = { defined: !!envVars.NODE_ENV.value, value: nodeEnv };
 
     if (nodeEnv === "production") {
-      const configs = require("../config/configs");
       if (configs.DEBUG) this.addWarning("DEBUG is enabled in PRODUCTION!");
     }
 
@@ -1038,4 +1037,4 @@ class StartupValidator {
   }
 }
 
-module.exports = StartupValidator;
+export default StartupValidator;
