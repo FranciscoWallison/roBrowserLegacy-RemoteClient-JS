@@ -55,11 +55,17 @@ let indexBuilt = false;
 
 /**
  * Memoized result of listFiles(). Rebuilding it walks every index entry into a Set -- 67 ms for a
- * full data.grf -- and both /list-files and every search need it. Identity matters too: the search
- * worker keeps its copy keyed on this array, and a fresh array each call would re-send 9 MB per
- * query. Cleared whenever the index is rebuilt.
+ * full data.grf. Cleared whenever the index is rebuilt.
  */
 let cachedFileList = null;
+
+/**
+ * Memoized name tables for search, one per GRF (see Grf#nameTable). Built on the first search rather
+ * than at startup: the game itself never searches, only the map, model and GRF viewers do. Identity
+ * matters: the search worker keeps its copy keyed on this array, and a fresh array each call would
+ * re-send ~10 MB per query. Cleared whenever the index is rebuilt.
+ */
+let cachedSearchTables = null;
 
 // Path mapping for encoding conversion (loaded from path-mapping.json if exists)
 let pathMapping = null;
@@ -205,8 +211,9 @@ const Client = {
       logger.debug(`Added ${mojibakeCount} mojibake path mappings for roBrowser compatibility`);
     }
 
-    // The file list and the search worker both cache what the index holds.
+    // The file list, the search tables and the search worker all cache what the index holds.
     cachedFileList = null;
+    cachedSearchTables = null;
     searchPool.invalidate();
 
     // Add path mapping entries to index
@@ -455,31 +462,28 @@ const Client = {
   },
 
   /**
-   * Search the file index with a client-supplied regex.
+   * Run a client-supplied pattern over the GRF name tables, the way roBrowser searches an archive it
+   * loaded itself: `table.data.match(regex)` with the `gi` flags, then duplicates removed.
+   *
+   * Each table is every name in one GRF, one character per CP949 byte, each followed by a NUL -- the
+   * client's `table.data`. The result is therefore the matched substrings, not whole paths: the GRF
+   * Viewer relies on that to list a directory, matching `<dir>\\([^(\0|\\)]+)` and getting back each
+   * entry directly under it. Matches never span two GRFs, as in the client.
    *
    * The pattern is attacker-controlled, and a catastrophic one cannot be interrupted mid-evaluation:
-   * `^(.+)+#$` against a 30-character path takes seconds and doubles with each extra character,
-   * while GRF paths run 40-60. Checking a time budget between candidates does not help, because the
-   * cost is inside a single RegExp.test() call.
+   * `^(.+)+#$` backtracks exponentially, and the cost is inside a single regex call. So the matching
+   * runs in a worker thread that is terminated on overrun; the process stays responsive while a
+   * hostile pattern burns, and the worker is replaced for the next query.
    *
-   * So the matching runs in a worker thread that the caller can terminate on overrun. This keeps the
-   * event loop free: the process stays responsive while a hostile pattern burns, and the worker is
-   * replaced for the next query.
-   *
-   * @returns {Promise<string[]>}
-   * @throws if the query exceeds its deadline -- the caller should answer 503.
+   * @param {string} pattern regex source, already in the one-character-per-byte spelling
+   * @returns {Promise<string[]>} matches in table order, without duplicates
+   * @throws if the query exceeds its deadline
    */
-  async search(regex, { limit = 10000, timeBudgetMs = 2000 } = {}) {
-    if (!configs.CLIENT_ENABLESEARCH) {
-      logger.warn('Search feature is disabled');
-      return [];
+  async search(pattern, { timeoutMs = 2000 } = {}) {
+    if (!cachedSearchTables) {
+      cachedSearchTables = this.grfs.map((grf) => (grf && grf.nameTable ? grf.nameTable() : ''));
     }
-
-    const candidates = this.listFiles();
-    return searchPool.search(regex.source, regex.flags, candidates, {
-      limit,
-      timeoutMs: timeBudgetMs,
-    });
+    return searchPool.search(pattern, 'gi', cachedSearchTables, { timeoutMs });
   },
 
   /**

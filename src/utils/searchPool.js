@@ -1,8 +1,8 @@
 /**
  * Owns the single worker thread that runs client-supplied regex searches.
  *
- * The worker holds its own copy of the path list (~9 MB for a full data.grf) so a query costs one
- * small message rather than re-sending 170k strings. Every query races a deadline; on overrun the
+ * The worker holds its own copy of the name tables (~10 MB for a full data.grf) so a query costs one
+ * small message rather than re-sending them. Every query races a deadline; on overrun the
  * worker is terminated -- which is the whole point, since a catastrophic backtrack cannot be
  * interrupted any other way -- and a fresh one is seeded on the next call.
  */
@@ -65,21 +65,25 @@ function ensureWorker() {
   return created;
 }
 
-/** Send the path list to the worker, once per worker instance. */
-function seed(paths) {
+/** Send the name tables to the worker, once per worker instance. */
+function seed(tables) {
   const active = ensureWorker();
-  if (seededWith === paths) return;
-  active.postMessage({ type: 'seed', paths });
-  seededWith = paths;
+  if (seededWith === tables) return;
+  active.postMessage({ type: 'seed', tables });
+  seededWith = tables;
 }
 
 /**
- * Run `pattern` against `paths` in the worker.
+ * Collect every match of `pattern` in `tables`, in the worker. The search is always global: 'g' is
+ * added to `flags` when missing.
  *
- * @returns {Promise<string[]>} the matches, or a rejection if the query overran `timeoutMs`.
+ * @param {string} pattern
+ * @param {string} flags
+ * @param {string[]} tables strings to search; matches never span two of them
+ * @returns {Promise<string[]>} the distinct matches, or a rejection if the query overran `timeoutMs`.
  */
-function search(pattern, flags, paths, { limit = 10000, timeoutMs = 2000 } = {}) {
-  seed(paths);
+function search(pattern, flags, tables, { timeoutMs = 2000 } = {}) {
+  seed(tables);
 
   const id = nextQueryId++;
   const active = worker;
@@ -96,11 +100,11 @@ function search(pattern, flags, paths, { limit = 10000, timeoutMs = 2000 } = {})
     if (typeof timer.unref === 'function') timer.unref();
 
     pending.set(id, { resolve, reject, timer });
-    active.postMessage({ type: 'query', id, pattern, flags, limit });
+    active.postMessage({ type: 'query', id, pattern, flags });
   });
 }
 
-/** Drop the cached path list so the next search re-seeds. Call after the index is rebuilt. */
+/** Drop the cached name tables so the next search re-seeds. Call after the index is rebuilt. */
 function invalidate() {
   seededWith = null;
   if (worker) discardWorker('index rebuilt');

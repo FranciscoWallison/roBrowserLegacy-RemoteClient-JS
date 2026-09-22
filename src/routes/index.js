@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const router = express.Router();
 const Client = require('../controllers/clientController');
 const configs = require('../config/configs');
+const { toLatin1 } = require('../utils/mojibake');
 
 // Cache duration settings (in seconds)
 const CACHE_DURATIONS = {
@@ -44,8 +45,9 @@ function setCacheHeaders(res, filePath, content, cachedETag) {
   return null;
 }
 
-// Longest accepted /search pattern. The client sends RegExp.source, which is short
-// in practice; the cap keeps a hostile pattern from being arbitrarily complex.
+// Longest accepted search pattern. The client sends RegExp.source, which is short in practice -- the
+// longest GRF Viewer directory pattern the bRO data.grf can produce is 105 characters -- and the cap
+// keeps a hostile pattern from being arbitrarily complex.
 const MAX_FILTER_LENGTH = 256;
 
 // Ceiling on the raw bytes one /batch response may assemble in memory. Bodies are
@@ -74,32 +76,55 @@ function checkConditionalRequest(req, etag) {
 // side effect of requiring this module -- which also made the app impossible to import without parsing
 // every configured GRF.
 
-router.post('/search', asyncRoute(async (req, res) => {
-  const filter = req.body.filter;
-  if (!configs.CLIENT_ENABLESEARCH || typeof filter !== 'string' || filter.length === 0) {
-    return res.status(400).send('Search feature is disabled or invalid filter');
-  }
+/**
+ * File search, as roBrowser's FileManager.search calls it: a synchronous POST to the remote client's
+ * root URL, form-encoded `filter=<RegExp.source>`. Only the map, model, STR, Granny and GRF viewers
+ * search; the game does not.
+ *
+ * The contract, all of it dictated by the client:
+ * - The answer is the matched substrings, one per line, as Client.search describes -- not whole paths.
+ * - The body is the name bytes as they are in the GRF, labelled ISO-8859-1. The client decodes it that
+ *   way (overrideMimeType) and reuses each line as a path, so re-encoding the names as UTF-8 would hand
+ *   it names that exist nowhere.
+ * - Anything that is not a result -- search disabled, a bad pattern, a timeout -- is an empty 200. The
+ *   client ignores the status and splits whatever body it gets on newlines, so an error message would
+ *   come back to it as file names. X-Search-Error says what happened, for anyone debugging.
+ */
+async function search(req, res) {
+  res.set('Content-Type', 'text/plain; charset=ISO-8859-1');
+  res.set('Cache-Control', 'no-store');
 
-  if (filter.length > MAX_FILTER_LENGTH) {
-    return res.status(400).send(`Filter too long (max ${MAX_FILTER_LENGTH} characters)`);
-  }
+  const reply = (matches, error) => {
+    if (error) res.set('X-Search-Error', error);
+    res.send(Buffer.from(matches.join('\n'), 'latin1'));
+  };
 
-  let regex;
+  const filter = req.body && req.body.filter;
+  if (!configs.CLIENT_ENABLESEARCH) return reply([], 'disabled');
+  if (typeof filter !== 'string' || filter.length === 0) return reply([], 'invalid-filter');
+  if (filter.length > MAX_FILTER_LENGTH) return reply([], 'filter-too-long');
+
+  // A pattern built from a previous result, like a GRF Viewer folder, holds the windows-1252 spelling of
+  // bytes 0x80-0x9F; the tables hold one character per byte.
+  const pattern = toLatin1(filter);
   try {
-    regex = new RegExp(filter, 'i');
+    new RegExp(pattern, 'gi');
   } catch (e) {
-    return res.status(400).send('Invalid regular expression');
+    return reply([], 'invalid-pattern');
   }
 
   try {
-    const files = await Client.search(regex);
-    res.send(files.join('\n'));
+    reply(await Client.search(pattern));
   } catch (err) {
-    // The pattern overran its deadline and the worker was terminated. This is the expected
-    // outcome for a catastrophic pattern, not a server fault worth a 500.
-    res.status(503).send('Search timed out: pattern too expensive');
+    // The pattern overran its deadline and the worker was terminated -- the expected outcome for a
+    // catastrophic pattern, not a server fault.
+    reply([], 'timeout');
   }
-}));
+}
+
+router.post('/', asyncRoute(search));
+// The route this server used to answer on. The client never called it, but other tools may.
+router.post('/search', asyncRoute(search));
 
 // Batch file endpoint - fetch multiple files in a single request
 router.post('/batch', asyncRoute(async (req, res) => {

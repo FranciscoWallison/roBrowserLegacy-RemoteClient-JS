@@ -38,4 +38,66 @@ function clientUrlPath(name) {
   return urlPathFor(clientName(name));
 }
 
-module.exports = { clientName, clientUrlPath, urlPathFor };
+/**
+ * Search through the remote client, exactly as FileManager.search does: a POST to the remote client's
+ * root with `filter=<regex.source>` -- the flags are dropped -- then the body decoded as ISO-8859-1 and
+ * split on newlines.
+ *
+ * @returns {Promise<{ list: string[], res: Response, body: Buffer }>}
+ */
+async function clientSearch(base, regex, { route = '/' } = {}) {
+  const res = await fetch(base + route, {
+    method: 'POST',
+    headers: { 'Content-type': 'application/x-www-form-urlencoded' },
+    body: 'filter=' + encodeURIComponent(regex.source),
+  });
+  const body = Buffer.from(await res.arrayBuffer());
+  return { list: windows1252.decode(body).split('\n'), res, body };
+}
+
+/**
+ * The same search over an archive the client loaded itself (FileManager.search with local game files):
+ * `table.data.match(regex)` over every name followed by a NUL, duplicates removed. This is the answer
+ * the remote search must give.
+ *
+ * @param {Array<{ name: string }>} files the archive, in table order
+ */
+function localSearch(files, regex) {
+  const tableData = files.map((file) => `${clientName(file.name)}\0`).join('');
+  return Array.from(new Set(tableData.match(regex) || []));
+}
+
+// The patterns the viewers send, each built the way the viewer builds it -- copied, not paraphrased.
+
+/** MapViewer.js: every map. */
+const MAP_VIEWER = /data\\([^\0]+\.rsw)/gi;
+
+/**
+ * GrfViewer.js showDirectory(): the entries directly under a folder. The viewer always passes the folder
+ * with a trailing slash -- 'data/' at the start, `${data-path}/` in onDirectoryClick -- and the pattern
+ * depends on it.
+ */
+function grfViewerDirectory(path) {
+  path = decodeURIComponent(path) || '/';
+  path = path.replace(/\\/g, '/');
+  if (path.substr(0, 1) === '/') path = path.substr(1);
+  const directory = path.replace(/\//g, '\\\\');
+  return new RegExp(`${directory}([^(\\0|\\\\)]+)`, 'gi');
+}
+
+/** GrfViewer.js search(): the search box. */
+function grfViewerKeyword(keyword) {
+  const escapedSearch = keyword.replace(/(\.|\\|\+|\*|\?|\[|\^|\]|\$|\(|\)|\{|\}|\=|\!|<|>|\||\:|\-)/g, '\\$1');
+  return new RegExp(`data\\\\([^(\\0\\)]+)?${escapedSearch}([^(\\0|\\\\)]+)?`, 'gi');
+}
+
+module.exports = {
+  clientName,
+  clientUrlPath,
+  urlPathFor,
+  clientSearch,
+  localSearch,
+  MAP_VIEWER,
+  grfViewerDirectory,
+  grfViewerKeyword,
+};

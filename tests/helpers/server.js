@@ -10,6 +10,7 @@ const path = require('path');
 const http = require('http');
 const { buildGrf } = require('./grfBuilder');
 const { clientName } = require('./roBrowser');
+const searchPool = require('../../src/utils/searchPool');
 
 const PROJECT_ROOT = path.resolve(__dirname, '..', '..');
 
@@ -62,7 +63,11 @@ async function startServer(appOptions = {}, { files } = {}) {
   return {
     server,
     base: `http://127.0.0.1:${server.address().port}`,
-    close: () => new Promise((resolve) => server.close(resolve)),
+    close: async () => {
+      await new Promise((resolve) => server.close(resolve));
+      // The search worker is unref'd, yet a seeded one still keeps the test process from exiting.
+      searchPool.invalidate();
+    },
   };
 }
 
