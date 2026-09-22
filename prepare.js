@@ -25,6 +25,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import configs from './src/config/configs.js';
 import StartupValidator from './src/validators/startupValidator.js';
+import { readDataIni } from './src/utils/dataIni.js';
 
 const ROOT = import.meta.dirname;
 
@@ -64,31 +65,13 @@ async function step1_validateConfig() {
 
   try {
     // Check required paths
-    const dataIniPath = path.join(ROOT, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
+    const dataIniPath = configs.DATA_INI_PATH;
     if (!fs.existsSync(dataIniPath)) {
       addResult('config', 'error', `DATA.INI not found: ${dataIniPath}`, Date.now() - stepStart);
       return false;
     }
 
-    // Parse DATA.INI to get GRF list
-    const dataIni = fs.readFileSync(dataIniPath, 'utf-8');
-    const grfFiles = [];
-    let inDataSection = false;
-
-    for (const line of dataIni.split(/\r?\n/)) {
-      if (/^\s*\[data\]/i.test(line)) {
-        inDataSection = true;
-        continue;
-      }
-      if (/^\s*\[/.test(line)) {
-        inDataSection = false;
-        continue;
-      }
-      if (inDataSection) {
-        const match = line.match(/^\s*\d+\s*=\s*(.+?)\s*$/);
-        if (match) grfFiles.push(match[1]);
-      }
-    }
+    const { entries: grfFiles, grfPaths } = readDataIni(dataIniPath);
 
     if (grfFiles.length === 0) {
       addResult('config', 'warning', 'No GRF files configured in DATA.INI', Date.now() - stepStart);
@@ -97,8 +80,8 @@ async function step1_validateConfig() {
 
     // Check GRF files exist
     let allExist = true;
-    for (const grf of grfFiles) {
-      const grfPath = path.join(ROOT, configs.CLIENT_RESPATH, grf);
+    for (const [i, grf] of grfFiles.entries()) {
+      const grfPath = grfPaths[i];
       if (!fs.existsSync(grfPath)) {
         log(`GRF file not found: ${grf}`, 'error');
         allExist = false;
@@ -222,35 +205,16 @@ async function step4_validateEncoding() {
   try {
     const validator = new StartupValidator();
 
-    // Get GRF files
-    const dataIniPath = path.join(ROOT, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
-    const dataIni = fs.readFileSync(dataIniPath, 'utf-8');
-    const grfFiles = [];
-    let inDataSection = false;
+    const { grfPaths } = readDataIni(configs.DATA_INI_PATH);
 
-    for (const line of dataIni.split(/\r?\n/)) {
-      if (/^\s*\[data\]/i.test(line)) {
-        inDataSection = true;
-        continue;
-      }
-      if (/^\s*\[/.test(line)) {
-        inDataSection = false;
-        continue;
-      }
-      if (inDataSection) {
-        const match = line.match(/^\s*\d+\s*=\s*(.+?)\s*$/);
-        if (match) {
-          grfFiles.push(path.join(ROOT, configs.CLIENT_RESPATH, match[1]));
-        }
-      }
-    }
+    if (grfPaths.length > 0) {
+      const encodingResult = await validator.validateEncodingDeep(grfPaths);
+      // The result has no `issues`: reading it threw, so this step always ended in an error.
+      const issues = encodingResult.summary.needsConversion;
 
-    if (grfFiles.length > 0 && validator.validateEncodingDeep) {
-      const encodingResult = await validator.validateEncodingDeep(grfFiles);
-
-      if (encodingResult.issues.length > 0) {
-        addResult('encoding', 'warning', `Found ${encodingResult.issues.length} encoding issues`, Date.now() - stepStart);
-        log(`Found ${encodingResult.issues.length} files with encoding issues`, 'warning');
+      if (issues > 0) {
+        addResult('encoding', 'warning', `Found ${issues} encoding issues`, Date.now() - stepStart);
+        log(`Found ${issues} files with encoding issues`, 'warning');
         log('Run "npm run convert:encoding" to fix', 'info');
       } else {
         addResult('encoding', 'success', 'No encoding issues', Date.now() - stepStart);

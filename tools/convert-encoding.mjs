@@ -11,9 +11,11 @@
  * Note: This tool does NOT modify GRF files. It creates a lookup table for runtime path resolution.
  */
 
-import { openSync, closeSync, writeFileSync, existsSync, readFileSync } from "fs";
+import { openSync, closeSync, writeFileSync, existsSync } from "fs";
 import path from "path";
 import { createRequire } from "module";
+import configs from "../src/config/configs.js";
+import { readDataIni } from "../src/utils/dataIni.js";
 
 const require = createRequire(import.meta.url);
 
@@ -40,7 +42,8 @@ try {
 
 // Parse arguments
 const outputArg = process.argv.find((a) => a.startsWith("--output="));
-const outputPath = outputArg ? outputArg.split("=")[1] : "path-mapping.json";
+// By default next to the server, which reads it from the project folder.
+const outputPath = outputArg ? outputArg.split("=")[1] : path.join(configs.PROJECT_ROOT, "path-mapping.json");
 
 console.log("=".repeat(80));
 console.log("GRF Encoding Converter");
@@ -60,49 +63,16 @@ function hasC1Controls(s) {
   return false;
 }
 
-// Parse DATA.INI
-function parseDataINI(content) {
-  const lines = content.split("\n");
-  const grfFiles = [];
-  let inDataSection = false;
-
-  for (let line of lines) {
-    line = line.trim();
-    if (!line || line.startsWith(";") || line.startsWith("#")) continue;
-
-    if (line.toLowerCase() === "[data]") {
-      inDataSection = true;
-      continue;
-    }
-
-    if (line.startsWith("[") && line.endsWith("]")) {
-      inDataSection = false;
-      continue;
-    }
-
-    if (inDataSection && line.includes("=")) {
-      const parts = line.split("=");
-      const value = parts.slice(1).join("=");
-      if (value && value.trim().toLowerCase().endsWith(".grf")) {
-        grfFiles.push(value.trim());
-      }
-    }
-  }
-
-  return grfFiles;
-}
-
 async function main() {
-  const resourcesPath = path.join(process.cwd(), "resources");
-  const dataIniPath = path.join(resourcesPath, "DATA.INI");
+  const dataIniPath = configs.DATA_INI_PATH;
 
   if (!existsSync(dataIniPath)) {
-    console.error("ERROR: resources/DATA.INI not found!");
+    console.error(`ERROR: ${dataIniPath} not found!`);
     process.exit(1);
   }
 
-  const dataIniContent = readFileSync(dataIniPath, "utf-8");
-  const grfFiles = parseDataINI(dataIniContent);
+  // The same reader the server uses: same order, absolute paths allowed.
+  const { entries: grfFiles, grfPaths } = readDataIni(dataIniPath);
 
   if (grfFiles.length === 0) {
     console.error("ERROR: No GRF files found in DATA.INI!");
@@ -123,8 +93,8 @@ async function main() {
     },
   };
 
-  for (const grfFile of grfFiles) {
-    const grfPath = path.join(resourcesPath, grfFile);
+  for (const [i, grfFile] of grfFiles.entries()) {
+    const grfPath = grfPaths[i];
 
     if (!existsSync(grfPath)) {
       console.log(`SKIP: ${grfFile} (not found)`);

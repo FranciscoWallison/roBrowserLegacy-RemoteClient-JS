@@ -7,8 +7,9 @@ import LRUCache from '../utils/LRUCache.js';
 import logger from '../utils/logger.js';
 import * as searchPool from '../utils/searchPool.js';
 import { decodeMojibake } from '../utils/mojibake.js';
+import { readDataIni } from '../utils/dataIni.js';
 
-const PROJECT_ROOT = path.resolve(import.meta.dirname, '..', '..');
+const { PROJECT_ROOT } = configs;
 
 /**
  * Top-level directories the client is allowed to read from disk.
@@ -41,6 +42,43 @@ function resolveContained(base, requestPath) {
 function isServable(resolvedPath) {
   const [top] = path.relative(PROJECT_ROOT, resolvedPath).split(/[\\/]/);
   return SERVABLE_ROOTS.includes(top.toLowerCase());
+}
+
+/**
+ * Whether a path is a regular file. A request for a folder ("/data/", "/BGM") used to reach
+ * readFileSync and log an EISDIR error for every such request.
+ */
+function isFile(p) {
+  try {
+    return fs.statSync(p).isFile();
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * The file for a request under BGM/, System/ or AI/ in the folder BGM_PATH, SYSTEM_PATH or AI_PATH
+ * points to, or null.
+ *
+ * Those folders are read-only and confined by real path, not just by name: a junction or symlink inside
+ * one cannot lead a request out of it.
+ */
+function resolveAssetDirFile(requestPath) {
+  const [top, ...rest] = requestPath.split(/[\\/]/);
+  const base = configs.ASSET_DIRS[top.toLowerCase()];
+  if (!base || rest.length === 0) return null;
+
+  const candidate = resolveContained(base, rest.join('/'));
+  if (!candidate) return null;
+  try {
+    const realBase = fs.realpathSync(base);
+    const real = fs.realpathSync(candidate);
+    const relative = path.relative(realBase, real);
+    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null;
+    return fs.statSync(real).isFile() ? real : null;
+  } catch (e) {
+    return null; // does not exist
+  }
 }
 
 // File content cache (5000 files, 1024MB max)
@@ -115,36 +153,31 @@ const Client = {
   /**
    * Load the GRFs listed in DATA.INI and build the file index.
    *
-   * GRF entries are resolved relative to the DATA.INI's own directory. With the default location
-   * (<root>/resources/DATA.INI) that is exactly <root>/resources/<name>, as before; the option exists
-   * so tests can point the server at synthetic archives instead of a real client.
+   * Archives are loaded in DATA.INI's priority order (src/utils/dataIni.js); an entry may be an absolute
+   * path, or relative to DATA.INI's folder. The option exists so tests can point the server at
+   * synthetic archives instead of a real client.
    *
    * @param {{ dataIniPath?: string }} [options]
    */
   async init({ dataIniPath } = {}) {
     const startTime = Date.now();
-    this.data_ini = dataIniPath
-      || path.join(PROJECT_ROOT, configs.CLIENT_RESPATH, configs.CLIENT_DATAINI);
-    const grfDir = path.dirname(this.data_ini);
+    this.data_ini = dataIniPath || configs.DATA_INI_PATH;
 
     if (!fs.existsSync(this.data_ini)) {
       logger.error('DATA.INI file not found:', this.data_ini);
       return;
     }
 
-    const dataIniContent = fs.readFileSync(this.data_ini, 'utf-8');
-    const dataIni = parseIni(dataIniContent);
-
-    // Check if data section exists and has GRF files configured
-    if (!dataIni.data || dataIni.data.length === 0) {
+    const { grfPaths } = readDataIni(this.data_ini);
+    if (grfPaths.length === 0) {
       logger.warn('No GRF files configured in DATA.INI. Add GRF files to [data] section.');
       this.grfs = [];
       return;
     }
 
     this.grfs = await Promise.all(
-      dataIni.data.filter(Boolean).map(async grfPath => {
-        const grf = new Grf(path.join(grfDir, grfPath));
+      grfPaths.map(async (grfPath) => {
+        const grf = new Grf(grfPath);
         await grf.load();
         return grf;
       })
@@ -260,7 +293,7 @@ const Client = {
     // Check local file system first. The path comes straight from the client, so it
     // is only read when it stays inside the project and lands in an asset tree.
     const localPath = resolveContained(PROJECT_ROOT, filePath);
-    if (localPath && isServable(localPath) && fs.existsSync(localPath)) {
+    if (localPath && isServable(localPath) && isFile(localPath)) {
       try {
         const content = fs.readFileSync(localPath);
         fileCache.set(cacheKey, content);
@@ -270,12 +303,24 @@ const Client = {
       }
     }
 
+    // BGM/, System/ and AI/ from a client installed elsewhere (BGM_PATH, SYSTEM_PATH, AI_PATH)
+    const assetDirFile = resolveAssetDirFile(filePath);
+    if (assetDirFile) {
+      try {
+        const content = fs.readFileSync(assetDirFile);
+        fileCache.set(cacheKey, content);
+        return content;
+      } catch (e) {
+        logger.error(`Error reading ${assetDirFile}: ${e.message}`);
+      }
+    }
+
     // Check DATA_OVERRIDE_PATH (external data dir with loose files not in GRF)
     if (process.env.DATA_OVERRIDE_PATH) {
       const relativePath = filePath.replace(/^data[\/\\]/, '');
       const overrideBase = path.resolve(PROJECT_ROOT, process.env.DATA_OVERRIDE_PATH);
       const overridePath = resolveContained(overrideBase, relativePath);
-      if (overridePath && fs.existsSync(overridePath)) {
+      if (overridePath && isFile(overridePath)) {
         try {
           const content = fs.readFileSync(overridePath);
           fileCache.set(cacheKey, content);
@@ -545,49 +590,5 @@ const Client = {
     return warmed;
   }
 };
-
-function parseIni(data) {
-  const regex = {
-    section: /^\s*\[\s*([^\]]*)\s*\]\s*$/,
-    param: /^\s*([\w\.\-\_]+)\s*=\s*(.*?)\s*$/,
-    comment: /^\s*;.*$/
-  };
-  const value = {};
-  const lines = data.split(/[\r\n]+/);
-  let section = null;
-
-  lines.forEach(line => {
-    if (regex.comment.test(line)) {
-      return;
-    } else if (regex.param.test(line)) {
-      const match = line.match(regex.param);
-      const key = parseInt(match[1], 10);
-      const val = match[2];
-      if (section) {
-        if (!value[section]) {
-          value[section] = [];
-        }
-        value[section][key] = val;
-      } else {
-        if (!value[key]) {
-          value[key] = [];
-        }
-        value[key] = val;
-      }
-    } else if (regex.section.test(line)) {
-      const match = line.match(regex.section);
-      section = match[1];
-      // Normalizar seção "Data" para lowercase
-      if (section.toLowerCase() === 'data') {
-        section = 'data';
-      }
-      if (!value[section]) {
-        value[section] = [];
-      }
-    }
-  });
-
-  return value;
-}
 
 export default Client;

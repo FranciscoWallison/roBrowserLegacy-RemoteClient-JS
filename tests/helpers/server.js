@@ -38,10 +38,13 @@ function assertNotShadowed(files) {
 
 /**
  * @param {object} [appOptions] passed to createApp()
- * @param {{ files?: Array<{name: string, content: Buffer|string}> }} [data] archive contents
+ * @param {object} [data]
+ * @param {Array<{name: string, content: Buffer|string}>} [data.files] contents of a one-archive client
+ * @param {string} [data.dataIniPath] or a DATA.INI the test wrote itself, with its own archives
+ * @param {string[]} [data.assertNames] names in those archives, to check nothing on disk shadows them
  * @returns {Promise<{ base: string, server: http.Server, close: () => Promise<void> }>}
  */
-async function startServer(appOptions = {}, { files } = {}) {
+async function startServer(appOptions = {}, { files, dataIniPath, assertNames = [] } = {}) {
   // AutoExtract would write every GRF hit into the repository's data/ folder -- polluting the working
   // tree, and on the next run serving that copy instead of the archive, so tests would pass for the
   // wrong reason.
@@ -53,6 +56,9 @@ async function startServer(appOptions = {}, { files } = {}) {
     buildGrf(path.join(dir, 'test.grf'), files);
     fs.writeFileSync(path.join(dir, 'DATA.INI'), '[Data]\n0=test.grf\n');
     await Client.init({ dataIniPath: path.join(dir, 'DATA.INI') });
+  } else if (dataIniPath) {
+    assertNotShadowed(assertNames.map((name) => ({ name })));
+    await Client.init({ dataIniPath });
   }
 
   const app = createApp({ requestLogging: false, ...appOptions });
