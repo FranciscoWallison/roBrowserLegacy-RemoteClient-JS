@@ -25,7 +25,7 @@
 	"author": "Vincent Thibault",
 	"license": "GNU GPL V3",
 	"dependencies": {
-		"@chicowall/grf-loader": "^1.1.0",
+		"@chicowall/grf-loader": "^1.2.0",
 		"compression": "^1.8.1",
 		"cors": "^2.8.5",
 		"express": "^5.2.1",
