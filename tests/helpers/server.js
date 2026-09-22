@@ -25,7 +25,9 @@ const PROJECT_ROOT = path.resolve(import.meta.dirname, '..', '..');
  * requested, which is the client's.
  */
 function assertNotShadowed(files) {
-  for (const { name } of files) {
+  for (const file of files) {
+    // A name given as raw bytes is spelled on disk the way the client spells it: one character per byte.
+    const name = Buffer.isBuffer(file.name) ? file.name.toString('latin1') : file.name;
     for (const spelling of [name, clientName(name)]) {
       const onDisk = path.join(PROJECT_ROOT, ...spelling.split('\\'));
       if (fs.existsSync(onDisk)) {

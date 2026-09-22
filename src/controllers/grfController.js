@@ -63,6 +63,17 @@ class Grf {
 	}
 
 	/**
+	 * Every entry, name and metadata, in table order. The metadata carries `rawNameBytes`, the name as
+	 * the archive stores it -- which is how the client spells it in a URL.
+	 *
+	 * @returns {Iterable<[string, object]>}
+	 */
+	entries() {
+		if (!this.loaded || !this.grf) return [];
+		return this.grf.files;
+	}
+
+	/**
 	 * Every name in the archive as roBrowser keeps them for search (GameFile.js, `table.data`): the raw
 	 * name bytes, one character per byte, each followed by a NUL, in table order.
 	 *

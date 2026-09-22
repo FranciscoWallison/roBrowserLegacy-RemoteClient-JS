@@ -22,8 +22,9 @@ const HEADER_SIZE = 46;
 
 /**
  * @param {string} outPath where to write the .grf
- * @param {Array<{ name: string, content: Buffer|string }>} files names use backslashes, as in real
- *   archives; they are stored as CP949 bytes
+ * @param {Array<{ name: string|Buffer, content: Buffer|string }>} files names use backslashes, as in
+ *   real archives; a string is stored as CP949 bytes, a Buffer as the bytes themselves -- for names no
+ *   encoder produces, which real archives do contain
  */
 function buildGrf(outPath, files) {
   const bodies = [];
@@ -39,7 +40,8 @@ function buildGrf(outPath, files) {
       throw new Error(`grfBuilder: "${file.name}" deflates to its own length; use a different payload`);
     }
     bodies.push(packed);
-    entries.push({ name: iconv.encode(file.name, 'cp949'), packed, realSize: content.length, offset: cursor });
+    const name = Buffer.isBuffer(file.name) ? file.name : iconv.encode(file.name, 'cp949');
+    entries.push({ name, packed, realSize: content.length, offset: cursor });
     cursor += packed.length;
   }
 

@@ -210,11 +210,11 @@ const Client = {
 
     for (let i = 0; i < this.grfs.length; i++) {
       const grf = this.grfs[i];
-      if (grf && grf.listFiles) {
-        const files = grf.listFiles();
-        for (const file of files) {
+      if (grf && grf.entries) {
+        for (const [file, entry] of grf.entries()) {
           // Normalize: lowercase, forward slashes
-          const normalized = file.toLowerCase().replace(/\\/g, '/');
+          const lower = file.toLowerCase();
+          const normalized = lower.replace(/\\/g, '/');
 
           // Only store first occurrence (first GRF has priority)
           if (!fileIndex.has(normalized)) {
@@ -222,23 +222,27 @@ const Client = {
           }
 
           // Also index with backslashes
-          const normalizedBackslash = file.toLowerCase().replace(/\//g, '\\');
+          const normalizedBackslash = lower.replace(/\//g, '\\');
           if (!fileIndex.has(normalizedBackslash)) {
             fileIndex.set(normalizedBackslash, { grfIndex: i, originalPath: file });
           }
 
-          // Also index the mojibake version of the path (for roBrowser compatibility)
-          // roBrowser sends Korean paths as CP949 bytes interpreted as Latin-1
+          // Also index the mojibake version of the path (for roBrowser compatibility): the client spells
+          // a Korean name with one character per stored byte. Those bytes come from the archive itself
+          // (rawNameBytes), not from encoding the decoded name again -- that is what the client sends,
+          // and it is one iconv call per name saved on a table of 200,000.
           try {
-            const cp949Buf = iconv.encode(file, 'cp949');
-            const mojibakePath = iconv.decode(cp949Buf, 'iso-8859-1');
+            const mojibakePath = entry?.rawNameBytes
+              ? Buffer.from(entry.rawNameBytes).toString('latin1')
+              : iconv.decode(iconv.encode(file, 'cp949'), 'iso-8859-1');
             if (mojibakePath !== file) {
-              const normalizedMojibake = mojibakePath.toLowerCase().replace(/\\/g, '/');
+              const mojibakeLower = mojibakePath.toLowerCase();
+              const normalizedMojibake = mojibakeLower.replace(/\\/g, '/');
               if (!fileIndex.has(normalizedMojibake)) {
                 fileIndex.set(normalizedMojibake, { grfIndex: i, originalPath: file });
                 mojibakeCount++;
               }
-              const mojibakeBackslash = mojibakePath.toLowerCase().replace(/\//g, '\\');
+              const mojibakeBackslash = mojibakeLower.replace(/\//g, '\\');
               if (!fileIndex.has(mojibakeBackslash)) {
                 fileIndex.set(mojibakeBackslash, { grfIndex: i, originalPath: file });
               }
