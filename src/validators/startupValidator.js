@@ -1,3 +1,4 @@
+import { isUtf8 } from "node:buffer";
 import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -295,8 +296,6 @@ class StartupValidator {
   }
 
   _scanFileTableNames(tableBuf, fileCount, offsetSize, fileSize, scanLimit) {
-    const utf8Decoder = new TextDecoder("utf-8", { fatal: true });
-
     const metaLen = 4 + 4 + 4 + 1 + offsetSize;
     const maxI = scanLimit > 0 ? Math.min(fileCount, scanLimit) : fileCount;
 
@@ -307,23 +306,9 @@ class StartupValidator {
     let parseErrors = 0;
     let offsetOutOfRange = 0;
 
-    const isUtf8 = (bytes) => {
-      // fast ASCII
-      let hasHigh = false;
-      for (let i = 0; i < bytes.length; i += 1) {
-        if (bytes[i] >= 0x80) {
-          hasHigh = true;
-          break;
-        }
-      }
-      if (!hasHigh) return true;
-      try {
-        utf8Decoder.decode(bytes);
-        return true;
-      } catch {
-        return false;
-      }
-    };
+    // node:buffer's isUtf8 answers the same question as decoding with a fatal TextDecoder, without
+    // building a string or throwing: on a Korean data.grf nearly every one of the 205,404 names threw,
+    // and this scan took 1.6 s of the boot.
 
     const decodeLatin1 = (bytes) => {
       try {
