@@ -476,6 +476,20 @@ const Client = {
     };
   },
 
+  /**
+   * Flush the missing-files log, stop the search worker and close the archives. For shutdown: the log
+   * is written in batches, so whatever was queued in the last second would otherwise be lost.
+   */
+  close() {
+    if (logFlushTimer) {
+      clearTimeout(logFlushTimer);
+      logFlushTimer = null;
+    }
+    flushLogQueue();
+    searchPool.invalidate();
+    for (const grf of this.grfs) grf?.close?.();
+  },
+
   getCacheStats() {
     return fileCache.getStats();
   },
