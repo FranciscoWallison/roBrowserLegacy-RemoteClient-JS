@@ -178,6 +178,14 @@ router.get('/list-files', asyncRoute(async (req, res) => {
 router.get('/*', asyncRoute(async (req, res) => {
   const filePath = req.params[0];
 
+  // Reject directory traversal attempts up front. Client.getFile() already
+  // confines local disk access to the servable asset roots, but rejecting
+  // ".." segments here keeps traversal-shaped requests from reaching any
+  // lookup at all instead of relying solely on a downstream guard.
+  if (filePath && filePath.split(/[\\/]/).includes('..')) {
+    return res.status(400).send('Invalid path');
+  }
+
   // Serve index.html for root
   if (filePath === '') {
     const indexPath = path.join(__dirname, '..', '..', 'index.html');
