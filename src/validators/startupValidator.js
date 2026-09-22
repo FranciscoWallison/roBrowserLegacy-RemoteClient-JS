@@ -5,7 +5,8 @@ import { TextDecoder } from "node:util";
 import zlib from "node:zlib";
 import configs from "../config/configs.js";
 import { readDataIni } from "../utils/dataIni.js";
-import grfLoader, { GrfNode } from "../utils/grfLoader.js";
+import grfLoader from "../utils/grfLoader.js";
+import { openArchive } from "../utils/grfArchive.js";
 
 const require = createRequire(import.meta.url);
 
@@ -489,7 +490,6 @@ class StartupValidator {
    */
   async validateGrfFormat(grfPath) {
     let fd = null;
-    let testFd = null;
 
     try {
       fd = fs.openSync(grfPath, "r");
@@ -541,19 +541,16 @@ class StartupValidator {
       }
 
       // REAL TEST: try to load using the library (compatibility with runtime)
-      testFd = fs.openSync(grfPath, "r");
-      const grf = new GrfNode(testFd);
-
+      // The same archive the server reads: openArchive loads it once, whichever of the two asks first.
+      let timer = null;
       try {
-        const loadPromise = grf.load();
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("GRF load timeout")), 10000)
-        );
+        const loadPromise = openArchive(grfPath);
+        const timeoutPromise = new Promise((_, reject) => {
+          timer = setTimeout(() => reject(new Error("GRF load timeout")), 10000);
+        });
 
         await Promise.race([loadPromise, timeoutPromise]);
-
-        fs.closeSync(testFd);
-        testFd = null;
+        clearTimeout(timer);
 
         fs.closeSync(fd);
         fd = null;
@@ -567,12 +564,7 @@ class StartupValidator {
           pathEncoding,
         };
       } catch (loadError) {
-        if (testFd) {
-          try {
-            fs.closeSync(testFd);
-          } catch {}
-          testFd = null;
-        }
+        clearTimeout(timer);
         if (fd) {
           try {
             fs.closeSync(fd);
@@ -590,11 +582,6 @@ class StartupValidator {
         };
       }
     } catch (error) {
-      if (testFd) {
-        try {
-          fs.closeSync(testFd);
-        } catch {}
-      }
       if (fd) {
         try {
           fs.closeSync(fd);
@@ -655,7 +642,6 @@ class StartupValidator {
       const grfFile = path.basename(grfPath);
       if (!fs.existsSync(grfPath)) continue;
 
-      let fd = null;
       const grfResult = {
         file: grfFile,
         totalFiles: 0,
@@ -671,13 +657,13 @@ class StartupValidator {
       };
 
       try {
-        fd = fs.openSync(grfPath, "r");
-        const grf = new GrfNode(fd, { filenameEncoding: "auto" });
-        await grf.load();
+        // The archive the server already has open, loaded once (src/utils/grfArchive.js).
+        const grf = await openArchive(grfPath);
 
-        const stats = grf.getStats?.() ?? {};
-        grfResult.totalFiles = stats.fileCount || 0;
-        grfResult.detectedEncoding = stats.detectedEncoding || "unknown";
+        // Not getStats(): asking for it builds the loader's lookup indexes, 0.3 s on the bRO data.grf,
+        // and nothing here uses them.
+        grfResult.totalFiles = grf.files?.size || 0;
+        grfResult.detectedEncoding = grf.getDetectedEncoding?.() || "unknown";
 
         // Iterate ALL files
         const allFiles = grf.files ? Array.from(grf.files.keys()) : [];
@@ -733,12 +719,6 @@ class StartupValidator {
       } catch (e) {
         grfResult.error = e.message;
         results.grfs.push(grfResult);
-      } finally {
-        if (fd !== null) {
-          try {
-            fs.closeSync(fd);
-          } catch {}
-        }
       }
     }
 

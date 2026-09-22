@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import iconv from "iconv-lite";
-import { GrfNode } from "../utils/grfLoader.js";
+import { openArchive } from "../utils/grfArchive.js";
 import logger from "../utils/logger.js";
 
 const NUL = Buffer.from([0]);
@@ -22,25 +22,17 @@ class Grf {
 		}
 
 		try {
-			const fd = fs.openSync(this.filePath, "r");
-			this.fd = fd;
-			this.grf = new GrfNode(fd);
-			await this.grf.load();
+			// Shared with the startup validator, which reads the same archives while this runs.
+			this.grf = await openArchive(this.filePath);
 			this.loaded = true;
 		} catch (error) {
 			logger.error("Error loading GRF file:", error);
 		}
 	}
 
-	/** Close the archive's file descriptor. For shutdown; the archive cannot be read afterwards. */
+	/** Let go of the archive. The descriptors are released by closeArchives() at shutdown. */
 	close() {
-		if (this.fd == null) return;
-		try {
-			fs.closeSync(this.fd);
-		} catch (error) {
-			logger.error(`Error closing ${this.fileName}: ${error.message}`);
-		}
-		this.fd = null;
+		this.grf = null;
 		this.loaded = false;
 	}
 

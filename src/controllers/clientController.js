@@ -8,6 +8,7 @@ import LRUCache from '../utils/LRUCache.js';
 import logger from '../utils/logger.js';
 import * as searchPool from '../utils/searchPool.js';
 import { decodeMojibake } from '../utils/mojibake.js';
+import { closeArchives } from '../utils/grfArchive.js';
 import { readDataIni } from '../utils/dataIni.js';
 import { isSafeFileName } from '../utils/safePath.js';
 
@@ -496,6 +497,7 @@ const Client = {
     flushLogQueue();
     searchPool.invalidate();
     for (const grf of this.grfs) grf?.close?.();
+    closeArchives();
   },
 
   getCacheStats() {
