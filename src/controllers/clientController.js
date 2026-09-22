@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import fsp from 'node:fs/promises';
 import path from 'node:path';
 import iconv from 'iconv-lite';
 import Grf from './grfController.js';
@@ -46,14 +47,17 @@ function isServable(resolvedPath) {
 }
 
 /**
- * Whether a path is a regular file. A request for a folder ("/data/", "/BGM") used to reach
- * readFileSync and log an EISDIR error for every such request.
+ * A regular file's contents, or null when the path is missing or is not a file. A request for a folder
+ * ("/data/", "/BGM") must not reach readFile. Asynchronous, like every disk access on the request path:
+ * a slow disk or network share delays that request, not every other one.
  */
-function isFile(p) {
+async function readRegularFile(p) {
   try {
-    return fs.statSync(p).isFile();
+    if (!(await fsp.stat(p)).isFile()) return null;
+    return await fsp.readFile(p);
   } catch (e) {
-    return false;
+    if (e.code !== 'ENOENT' && e.code !== 'ENOTDIR') logger.error(`Error reading ${p}: ${e.message}`);
+    return null;
   }
 }
 
@@ -64,7 +68,7 @@ function isFile(p) {
  * Those folders are read-only and confined by real path, not just by name: a junction or symlink inside
  * one cannot lead a request out of it.
  */
-function resolveAssetDirFile(requestPath) {
+async function resolveAssetDirFile(requestPath) {
   const [top, ...rest] = requestPath.split(/[\\/]/);
   const base = configs.ASSET_DIRS[top.toLowerCase()];
   if (!base || rest.length === 0) return null;
@@ -72,11 +76,11 @@ function resolveAssetDirFile(requestPath) {
   const candidate = resolveContained(base, rest.join('/'));
   if (!candidate) return null;
   try {
-    const realBase = fs.realpathSync(base);
-    const real = fs.realpathSync(candidate);
+    const realBase = await fsp.realpath(base);
+    const real = await fsp.realpath(candidate);
     const relative = path.relative(realBase, real);
     if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) return null;
-    return fs.statSync(real).isFile() ? real : null;
+    return real;
   } catch (e) {
     return null; // does not exist
   }
@@ -121,6 +125,8 @@ if (fs.existsSync(pathMappingFile)) {
 // Missing files log (async write queue)
 const missingFilesLog = path.join(PROJECT_ROOT, 'logs', 'missing-files.log');
 const missingFilesSet = new Set();
+// Bounded: every distinct path that 404s is remembered, and anyone can request as many as they like.
+const MAX_TRACKED_MISSING = 10000;
 let lastNotificationTime = 0;
 const NOTIFICATION_COOLDOWN = 60000; // 1 minute cooldown between notifications
 
@@ -150,6 +156,7 @@ const Client = {
   grfs: [],
   AutoExtract: configs.CLIENT_AUTOEXTRACT,
   missingFiles: [],
+  maxTrackedMissing: MAX_TRACKED_MISSING,
 
   /**
    * Load the GRFs listed in DATA.INI and build the file index.
@@ -281,12 +288,22 @@ const Client = {
   },
 
   async getFile(filePath) {
-    // Check cache first
-    const cacheKey = filePath.toLowerCase();
-    const cached = fileCache.get(cacheKey);
+    const cached = fileCache.get(filePath.toLowerCase());
     if (cached) {
       return cached.data;
     }
+    return this.loadFile(filePath);
+  },
+
+  /**
+   * Find a file that is not in the cache, and cache it.
+   *
+   * The cache lookup is the caller's. The asset route does it first, to answer from the cached ETag, and
+   * used to call getFile() on a miss -- which looked again and counted every miss twice, so the reported
+   * hit rate was wrong.
+   */
+  async loadFile(filePath) {
+    const cacheKey = filePath.toLowerCase();
 
     // Normalize paths
     let grfFilePath = filePath.replace(/\//g, '\\');
@@ -294,25 +311,21 @@ const Client = {
     // Check local file system first. The path comes straight from the client, so it
     // is only read when it stays inside the project and lands in an asset tree.
     const localPath = resolveContained(PROJECT_ROOT, filePath);
-    if (localPath && isServable(localPath) && isFile(localPath)) {
-      try {
-        const content = fs.readFileSync(localPath);
+    if (localPath && isServable(localPath)) {
+      const content = await readRegularFile(localPath);
+      if (content) {
         fileCache.set(cacheKey, content);
         return content;
-      } catch (e) {
-        logger.error(`Error reading local file: ${e.message}`);
       }
     }
 
     // BGM/, System/ and AI/ from a client installed elsewhere (BGM_PATH, SYSTEM_PATH, AI_PATH)
-    const assetDirFile = resolveAssetDirFile(filePath);
+    const assetDirFile = await resolveAssetDirFile(filePath);
     if (assetDirFile) {
-      try {
-        const content = fs.readFileSync(assetDirFile);
+      const content = await readRegularFile(assetDirFile);
+      if (content) {
         fileCache.set(cacheKey, content);
         return content;
-      } catch (e) {
-        logger.error(`Error reading ${assetDirFile}: ${e.message}`);
       }
     }
 
@@ -321,13 +334,11 @@ const Client = {
       const relativePath = filePath.replace(/^data[\/\\]/, '');
       const overrideBase = path.resolve(PROJECT_ROOT, process.env.DATA_OVERRIDE_PATH);
       const overridePath = resolveContained(overrideBase, relativePath);
-      if (overridePath && isFile(overridePath)) {
-        try {
-          const content = fs.readFileSync(overridePath);
+      if (overridePath) {
+        const content = await readRegularFile(overridePath);
+        if (content) {
           fileCache.set(cacheKey, content);
           return content;
-        } catch (e) {
-          logger.error(`Error reading override file: ${e.message}`);
         }
       }
     }
@@ -414,22 +425,18 @@ const Client = {
     if (!localPath || !isServable(localPath)) return;
     if (!isSafeFileName(path.relative(PROJECT_ROOT, localPath))) return;
 
-    setImmediate(() => {
-      try {
-        const extractDir = path.dirname(localPath);
-        if (!fs.existsSync(extractDir)) {
-          fs.mkdirSync(extractDir, { recursive: true });
-        }
-        fs.writeFileSync(localPath, content);
-      } catch (e) {
-        logger.error(`Failed to extract file: ${e.message}`);
-      }
-    });
+    fsp.mkdir(path.dirname(localPath), { recursive: true })
+      .then(() => fsp.writeFile(localPath, content))
+      .catch((e) => logger.error(`Failed to extract file: ${e.message}`));
   },
 
   logMissingFile(requestedPath, grfPath, mappedPath) {
     if (missingFilesSet.has(requestedPath)) return;
 
+    // Forget the oldest path once the set is full: a Set iterates in insertion order.
+    while (missingFilesSet.size >= this.maxTrackedMissing) {
+      missingFilesSet.delete(missingFilesSet.values().next().value);
+    }
     missingFilesSet.add(requestedPath);
 
     const logEntry = {
@@ -471,6 +478,7 @@ const Client = {
   getMissingFilesSummary() {
     return {
       total: this.missingFiles.length,
+      tracked: missingFilesSet.size,
       files: this.missingFiles.slice(-50),
       logFile: missingFilesLog,
     };

@@ -22,6 +22,8 @@ const ASCII = { name: 'data\\texture\\basepic\\loading01.txt', content: 'plain a
 const KOREAN = { name: 'data\\texture\\유저인터페이스\\basic.bmp', content: 'korean-named payload '.repeat(20) };
 // "똠" is 0x8C 0x63 in CP949: a byte Latin-1 and windows-1252 read differently.
 const KOREAN_C1 = { name: 'data\\sprite\\아이템\\똠테스트.spr', content: 'c1-byte payload '.repeat(20) };
+// Requested by one test only, so its first request is a cache miss.
+const CACHE_PROBE = { name: 'data\\test_cache_probe.txt', content: 'cache probe payload '.repeat(20) };
 const ALLOWED_ORIGIN = 'http://localhost:8000';
 
 let dev;
@@ -29,7 +31,7 @@ let dev;
 test.before(async () => {
   dev = await startServer(
     { isProd: false, corsOrigins: [ALLOWED_ORIGIN] },
-    { files: [ASCII, KOREAN, KOREAN_C1] }
+    { files: [ASCII, KOREAN, KOREAN_C1, CACHE_PROBE] }
   );
 });
 
@@ -89,6 +91,8 @@ test('sends an ETag and answers a matching If-None-Match with 304', async () => 
   const first = await fetch(dev.base + '/data/texture/basepic/loading01.txt');
   const etag = first.headers.get('etag');
   assert.ok(etag, 'no ETag on a static game asset');
+  // Last-Modified was the time of the response: every file claimed to have changed at every request.
+  assert.strictEqual(first.headers.get('last-modified'), null);
 
   const second = await fetch(dev.base + '/data/texture/basepic/loading01.txt', {
     headers: { 'If-None-Match': etag },
@@ -177,10 +181,10 @@ test('a URL with broken percent-encoding answers 400 without a stack trace', asy
 });
 
 test('an error inside a route answers 500 without detail, is logged, and the server keeps serving', async () => {
-  const { getFile } = Client;
+  const { loadFile } = Client;
   const { error } = logger;
   const logged = [];
-  Client.getFile = async () => { throw new Error('boom: F:\\secret\\path'); };
+  Client.loadFile = async () => { throw new Error('boom: F:\\secret\\path'); };
   logger.error = (...args) => logged.push(args);
   try {
     const res = await fetch(dev.base + '/data/never-cached.bmp');
@@ -189,7 +193,7 @@ test('an error inside a route answers 500 without detail, is logged, and the ser
     assert.strictEqual(body, 'Internal Server Error');
     assert.strictEqual(logged.length, 1, 'a 500 must be logged');
   } finally {
-    Client.getFile = getFile;
+    Client.loadFile = loadFile;
     logger.error = error;
   }
 
@@ -227,9 +231,39 @@ test('development: /api/health carries the full payload', async () => {
   }
 });
 
-test('development: /api/missing-files and /api/cache-stats answer 200', async () => {
+test('development: /api/missing-files, /api/cache-stats and /list-files answer 200', async () => {
   assert.strictEqual((await fetch(dev.base + '/api/missing-files')).status, 200);
   assert.strictEqual((await fetch(dev.base + '/api/cache-stats')).status, 200);
+  const list = await fetch(dev.base + '/list-files');
+  assert.strictEqual(list.status, 200);
+  assert.ok((await list.json()).includes(ASCII.name));
+});
+
+test('a cache miss is counted once', async () => {
+  // The asset route looked in the cache for the ETag, then called getFile(), which looked again: every
+  // miss was counted twice and the reported hit rate was wrong.
+  const stats = async () => (await (await fetch(dev.base + '/api/cache-stats')).json()).cache;
+  const before = await stats();
+  await fetch(dev.base + '/data/test_cache_probe.txt');
+  const afterMiss = await stats();
+  await fetch(dev.base + '/data/test_cache_probe.txt');
+  const afterHit = await stats();
+  assert.strictEqual(afterMiss.misses - before.misses, 1, 'one miss counted more than once');
+  assert.strictEqual(afterHit.hits - afterMiss.hits, 1);
+  assert.strictEqual(afterHit.misses, afterMiss.misses);
+});
+
+test('the paths remembered as missing are bounded', async () => {
+  // Every distinct path that 404s was kept forever, and anyone can request as many as they like.
+  const { maxTrackedMissing } = Client;
+  Client.maxTrackedMissing = 5;
+  try {
+    for (let i = 0; i < 12; i++) await fetch(dev.base + `/data/bounded-miss-${i}.bmp`);
+    const summary = await (await fetch(dev.base + '/api/missing-files')).json();
+    assert.ok(summary.tracked <= 5, `${summary.tracked} paths tracked`);
+  } finally {
+    Client.maxTrackedMissing = maxTrackedMissing;
+  }
 });
 
 test('production: diagnostics are gated and /api/health keeps only liveness', async () => {
@@ -238,6 +272,8 @@ test('production: diagnostics are gated and /api/health keeps only liveness', as
   try {
     assert.strictEqual((await fetch(prod.base + '/api/missing-files')).status, 404);
     assert.strictEqual((await fetch(prod.base + '/api/cache-stats')).status, 404);
+    // The whole file list: about 10 MB of JSON for a real client, and never asked for by roBrowser.
+    assert.strictEqual((await fetch(prod.base + '/list-files')).status, 404);
 
     const res = await fetch(prod.base + '/api/health');
     assert.strictEqual(res.status, 200, '/api/health must stay reachable for health checks');
