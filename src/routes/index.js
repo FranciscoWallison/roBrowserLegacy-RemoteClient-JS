@@ -37,7 +37,8 @@ function setCacheHeaders(res, filePath, content, cachedETag) {
     const etag = cachedETag || generateETag(content);
     res.set('ETag', `"${etag}"`);
     res.set('Cache-Control', `public, max-age=${CACHE_DURATIONS.static}, immutable`);
-    res.set('Last-Modified', new Date().toUTCString());
+    // No Last-Modified: it was the time of the response, so every file claimed to have changed at every
+    // request. The ETag is what validates a cached copy.
     return etag;
   }
 
@@ -190,8 +191,8 @@ router.get('/{*splat}', async (req, res) => {
     return sendAsset(req, res, filePath, cachedEntry.data, cachedEntry.etag);
   }
 
-  // Cache miss - fetch from GRF or local filesystem
-  const fileContent = await Client.getFile(filePath);
+  // Cache miss - fetch from GRF or local filesystem. loadFile, not getFile: the cache was just checked.
+  const fileContent = await Client.loadFile(filePath);
 
   if (!fileContent) {
     res.set('Cache-Control', 'no-store');
@@ -218,7 +219,7 @@ function sendAsset(req, res, filePath, content, cachedETag) {
     res.set('Accept-Ranges', 'bytes');
 
     // If-Range: serve the range only if the client's partial copy is of this same file. A date cannot be
-    // checked -- Last-Modified here is the time of the response, not of the file -- so it gets the whole.
+    // checked -- there is no Last-Modified to compare it with -- so it gets the whole file.
     const ifRange = req.headers['if-range'];
     const rangeApplies = req.headers.range && (!ifRange || ifRange === `"${etag}"`);
     const ranges = rangeApplies ? req.range(content.length, { combine: true }) : undefined;

@@ -144,6 +144,14 @@ function createApp({
     res.json(Client.getMissingFilesSummary());
   });
 
+  // The whole file list -- about 10 MB of JSON for a full data.grf -- is a development aid. The client
+  // never asks for it, and in production it hands anyone the archive's contents and a cheap way to make
+  // the server serialize 10 MB per request.
+  app.get('/list-files', (req, res, next) => {
+    if (isProd) return res.status(404).end();
+    next();
+  });
+
   // Cache stats endpoint (diagnostics: dev-only, same rationale as above)
   app.get('/api/cache-stats', (req, res) => {
     if (isProd) return res.status(404).end();

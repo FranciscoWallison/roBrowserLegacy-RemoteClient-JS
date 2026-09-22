@@ -215,6 +215,11 @@ Server ready on http://localhost:3338 | Game: http://localhost:3338/applications
 Cache warmed with 500 files in 3200ms
 ```
 
+**Parar:** `Ctrl+C` (SIGINT) ou SIGTERM de um container ou gerenciador de processos para o servidor de forma limpa:
+as sessoes de jogo recebem close frame (`1001`), as requisicoes em andamento terminam e o log de arquivos ausentes
+e gravado. Conexao que continua aberta depois de 5 segundos e abandonada. No Windows so o `Ctrl+C` no terminal
+entrega o sinal; encerrar o processo pelo Gerenciador de Tarefas o mata na hora.
+
 ### Desenvolvimento vs Producao
 
 | Recurso | Desenvolvimento | Producao |
@@ -224,6 +229,7 @@ Cache warmed with 500 files in 3200ms
 | Conexoes WS proxy | Logadas | Silencioso |
 | Detalhes do indice de arquivos | Logados | Silencioso |
 | Log de arquivos ausentes | Logado no console | Apenas em arquivo |
+| `/list-files`, `/api/missing-files`, `/api/cache-stats` | Disponiveis | 404 |
 | Info de inicializacao | Detalhado | Resumo em uma linha |
 | Erros e avisos | Sempre exibidos | Sempre exibidos |
 
@@ -249,6 +255,16 @@ Quando `ENABLE_WSPROXY=true`, o servidor embute um proxy WebSocket-para-TCP que 
 - `127.0.0.1:6900` (Servidor de Login)
 - `127.0.0.1:6121` (Servidor de Char)
 - `127.0.0.1:5121` (Servidor de Map)
+
+**Limites** — nenhum que o roBrowser chegue perto:
+- **Origem.** Uma pagina so abre o proxy se a origem dela for uma das que o servidor aceita no CORS
+  (`CLIENT_PUBLIC_URL` e as portas locais de desenvolvimento, ou `CORS_ORIGINS`). Sem essa checagem, qualquer pagina
+  que o jogador visitasse poderia usar o proxy pelo navegador dele. Clientes sem Origin (nao sao pagina de
+  navegador) passam.
+- **Tamanho do frame:** 64 KiB. O padrao da biblioteca era 100 MiB; um pacote do jogo tem poucas centenas de bytes.
+- **Tempo para conectar:** 10 s para alcancar o servidor do jogo; depois o navegador recebe o codigo `1011`.
+- **Antes do servidor do jogo responder:** no maximo 256 KiB ficam no buffer; depois a conexao e fechada com `1008`
+  em vez de descartar pacotes, o que dessincronizaria o jogo.
 
 **Destinos personalizados (Docker/Kubernetes):**
 
@@ -394,6 +410,7 @@ Assets estaticos do jogo recebem headers de cache apropriados para cache no nave
 | ETag | Hash MD5 | Validacao de conteudo |
 | Cache-Control | `max-age=86400, immutable` | Cache de 1 dia para assets do jogo |
 | 304 Not Modified | — | Pular re-download se nao mudou |
+| Last-Modified | *(nao enviado)* | Era a hora da resposta, entao todo arquivo parecia mudar a cada requisicao; quem valida e o ETag |
 | Accept-Ranges / 206 | `bytes` | So `.mp3`, `.wav` e `.ogg`: deixa o elemento `<audio>` que toca a BGM avancar e voltar. Respeita `If-Range` |
 
 ### Compressao de Respostas
@@ -452,7 +469,7 @@ as copias que ja estao em `data/` continuam sendo servidas: tire-as de la.
 | GET | `/*` | Serve qualquer arquivo do client (do disco, cache ou GRF) |
 | POST | `/` | [Busca de arquivos](#busca-de-arquivos), onde o roBrowser a envia |
 | POST | `/search` | A mesma busca, na rota que este servidor usava antes |
-| GET | `/list-files` | Lista todos os arquivos disponiveis |
+| GET | `/list-files` | Lista todos os arquivos disponiveis. Apenas em desenvolvimento — 404 em producao |
 | WS | `/ws/{host}:{port}` | Proxy WebSocket para TCP (quando `ENABLE_WSPROXY=true`) |
 
 ### Exemplos de Uso
@@ -547,7 +564,8 @@ para o cliente real, e nao so quando deixa de bater com a propria ideia de requi
 | `asset-dirs.test.js` | `BGM_PATH`, `SYSTEM_PATH`, `AI_PATH`: servidos, sem diferenciar maiusculas, com faixas de bytes, sem fuga por `..` nem por junction |
 | `autoextract.test.js` | AutoExtract desligado por padrao; ligado, grava so nas pastas de assets e nunca com nome que o Windows reinterpretaria |
 | `validator-paths.test.js` | A validacao de inicializacao de qualquer diretorio, sem npm no PATH, com o leitor de DATA.INI do servidor |
-| `wsproxy.test.js` | O proxy WebSocket contra um rAthena falso: repasse, buffer antes da conexao, allowlist, Close frame de verdade, limpeza |
+| `wsproxy.test.js` | O proxy WebSocket contra um rAthena falso: repasse, buffer antes da conexao, allowlist, Close frame de verdade, limpeza, e os limites: origem, tamanho de frame, tempo para conectar, bytes antes de conectar |
+| `shutdown.test.js` | Parar: sessoes de jogo fechadas com 1001, requisicoes em andamento terminadas, log gravado; conexao travada abandonada no prazo |
 | `grf-loader.test.js` | O loader de GRF decodifica nomes coreanos com o iconv-lite — o que nao aconteceria se o pacote fosse importado como ES module (ver `src/utils/grfLoader.js`) |
 | `env.test.js` | O `.env` e lido da raiz do projeto qualquer que seja o diretorio atual, e opcional, e nunca sobrescreve uma variavel ja definida |
 | `node-version.test.js` | A checagem de inicializacao avisa abaixo da versao de Node do `engines` |
@@ -646,6 +664,7 @@ roBrowserLegacy-RemoteClient-JS/
 ├── src/                        # Codigo-fonte da aplicacao (ES modules)
 │   ├── app.js                  # createApp(): o app Express, sem subir nada
 │   ├── env.js                  # Carrega o .env; primeiro import de todo ponto de entrada
+│   ├── shutdown.js             # Parada limpa em SIGINT/SIGTERM
 │   ├── wsProxy.js              # Proxy WebSocket -> TCP para o rAthena
 │   ├── config/
 │   │   └── configs.js          # Configuracoes do client e servidor
@@ -725,6 +744,8 @@ O servidor registra arquivos ausentes em `logs/missing-files.log`. Verifique:
 4. Garanta que o rAthena esta rodando (login:6900, char:6121, map:5121)
 5. Verifique os logs do servidor por mensagens `WS proxy blocked connection`
 6. Para Docker/rAthena remoto: defina `WS_ALLOWED_TARGETS` no `.env` (veja [Variaveis de Ambiente](#variaveis-de-ambiente))
+7. `WS proxy refused origin ...` no log: a pagina que roda o roBrowser vem de uma origem que o servidor nao aceita.
+   Defina `CLIENT_PUBLIC_URL` com ela, ou inclua em `CORS_ORIGINS`
 
 ### Problemas Comuns
 

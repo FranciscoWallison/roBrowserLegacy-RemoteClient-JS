@@ -23,12 +23,25 @@ class Grf {
 
 		try {
 			const fd = fs.openSync(this.filePath, "r");
+			this.fd = fd;
 			this.grf = new GrfNode(fd);
 			await this.grf.load();
 			this.loaded = true;
 		} catch (error) {
 			logger.error("Error loading GRF file:", error);
 		}
+	}
+
+	/** Close the archive's file descriptor. For shutdown; the archive cannot be read afterwards. */
+	close() {
+		if (this.fd == null) return;
+		try {
+			fs.closeSync(this.fd);
+		} catch (error) {
+			logger.error(`Error closing ${this.fileName}: ${error.message}`);
+		}
+		this.fd = null;
+		this.loaded = false;
 	}
 
 	async getFile(filename) {

@@ -10,6 +10,7 @@ import StartupValidator from './src/validators/startupValidator.js';
 import Client from './src/controllers/clientController.js';
 import { createApp, resolveCorsOrigins } from './src/app.js';
 import { attachWsProxy, parseAllowedTargets } from './src/wsProxy.js';
+import { createShutdown } from './src/shutdown.js';
 
 const require = createRequire(import.meta.url);
 
@@ -91,17 +92,31 @@ async function startServer() {
     logger.debug(`Static serve enabled: ${staticRoot}`);
   }
 
+  const corsOrigins = resolveCorsOrigins(process.env.CORS_ORIGINS, CLIENT_PUBLIC_URL);
   const app = createApp({
     isProd: IS_PROD,
-    corsOrigins: resolveCorsOrigins(process.env.CORS_ORIGINS, CLIENT_PUBLIC_URL),
+    corsOrigins,
     validationStatus,
     esrganInstance,
     staticRoot,
   });
   const server = http.createServer(app);
 
+  let wss = null;
   if (ENABLE_WSPROXY) {
-    attachWsProxy(server, { allowedTargets: parseAllowedTargets(process.env.WS_ALLOWED_TARGETS) });
+    // The pages allowed to fetch assets are the ones allowed to open a game connection.
+    wss = attachWsProxy(server, {
+      allowedTargets: parseAllowedTargets(process.env.WS_ALLOWED_TARGETS),
+      allowedOrigins: corsOrigins,
+    });
+  }
+
+  const shutdown = createShutdown({ server, wss, client: Client, logger });
+  for (const signal of ['SIGINT', 'SIGTERM']) {
+    process.once(signal, async () => {
+      const outcome = await shutdown(signal);
+      process.exit(outcome === 'clean' ? 0 : 1);
+    });
   }
 
   server.listen(port, () => {
