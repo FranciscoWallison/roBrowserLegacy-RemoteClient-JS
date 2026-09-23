@@ -29,6 +29,7 @@ With **Unified Server Mode**, this single Node.js process replaces three separat
   - [LRU File Cache](#lru-file-cache)
   - [Cache Warm-Up](#cache-warm-up)
   - [GRF File Index](#grf-file-index)
+  - [One Load per Archive](#one-load-per-archive)
   - [HTTP Cache Headers](#http-cache-headers)
   - [Response Compression](#response-compression)
   - [Auto-Extract to Disk](#auto-extract-to-disk)
@@ -500,6 +501,24 @@ At startup, the server builds a unified index from all GRF files for O(1) lookup
 - Path mapping integration for Korean → GRF path resolution
 - Index statistics available via `/api/cache-stats`
 
+### One Load per Archive
+
+The startup validator and the file index run at the same time and read the same archives. Each used to
+open and parse its own copy — the validator twice, counting its encoding check — so the file table of
+every GRF was parsed three times and three copies of it sat in memory.
+
+`src/utils/grfArchive.js` keeps one loaded archive per file: the first caller starts the load, the others
+await the same promise, and `closeArchives()` releases the descriptors at shutdown. A load that fails is
+not cached, so the next caller may try again.
+
+- The loader's own file cache is off (`cacheMaxFiles: 0`): this server caches decoded files itself, with a
+  byte budget and the ETags the responses need, and two caches would hold the same files twice.
+- The spellings the client asks for come from the bytes stored in the archive (`rawNameBytes`), not from
+  encoding the decoded name back to CP949 — a name whose bytes no encoder produces again used to be
+  indexed as `data\??.txt` and was unreachable.
+- Boot on a 3.27 GiB `data.grf` (205,404 files, 771,268 indexed paths): **5.8 s → 1.7 s**, of which the
+  index is ~0.9 s.
+
 ### HTTP Cache Headers
 
 Static game assets receive proper cache headers for browser-side caching:
@@ -511,6 +530,13 @@ Static game assets receive proper cache headers for browser-side caching:
 | 304 Not Modified | — | Skip re-download if unchanged |
 | Last-Modified | *(not sent)* | It used to be the time of the response, so every file claimed to change at every request; the ETag validates |
 | Accept-Ranges / 206 | `bytes` | `.mp3`, `.wav` and `.ogg` only: lets the `<audio>` element that plays BGM seek. `If-Range` is honoured |
+
+**Editing a file the server reads from disk** (`DATA_OVERRIDE_PATH`, `SYSTEM_PATH`, the project's asset
+trees) does not reach a client that already has it: the server's own cache does not check the file's
+timestamp, the response is `immutable` for a day, and roBrowser saves everything it downloads in the
+browser's FileSystem storage and reads it from there first. Restart the server and clear that storage —
+in the browser console: `webkitRequestFileSystem(0, 1e9, fs => fs.root.createReader().readEntries(es =>
+es.forEach(e => e.removeRecursively(() => {}, () => {}))))`.
 
 ### Response Compression
 
