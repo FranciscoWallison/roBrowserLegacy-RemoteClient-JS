@@ -137,6 +137,62 @@ async function startServer() {
     const WebSocket = require('ws');
     const wss = new WebSocket.Server({ noServer: true });
 
+    // rAthena enforces max_clients_per_ip against the TCP source address. The
+    // browser proxy otherwise makes every web player appear to be 127.0.0.1.
+    // Preserve the visitor IP by assigning each visitor a stable loopback alias
+    // for the proxy-to-rAthena connections. Trust Cloudflare's header only when
+    // the HTTP connection itself came from loopback (the production Caddy hop).
+    const proxyIpByClient = new Map();
+    const clientByProxyIp = new Map();
+    const normalizeIp = (value) => {
+      if (typeof value !== 'string') return '';
+      const ip = value.trim().replace(/^::ffff:/i, '');
+      return net.isIP(ip) ? ip : '';
+    };
+    const isLoopback = (value) => {
+      const ip = normalizeIp(value);
+      return ip === '::1' || ip.startsWith('127.');
+    };
+    const getClientIp = (req) => {
+      const peer = normalizeIp(req.socket.remoteAddress || '');
+      if (isLoopback(peer)) {
+        const forwarded = normalizeIp(req.headers['cf-connecting-ip']);
+        if (forwarded) return forwarded;
+      }
+      return peer || '127.0.0.1';
+    };
+    const acquireProxyIp = (clientIp) => {
+      let entry = proxyIpByClient.get(clientIp);
+      if (!entry) {
+        // Hash into 127.1.0.0/16, avoiding 127.0.0.1 used by other services.
+        let hash = 2166136261;
+        for (const char of clientIp) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+        let host = (hash % 65534) + 1;
+        for (let i = 0; i < 65534; i++) {
+          const address = `127.1.${host >>> 8}.${host & 255}`;
+          const owner = clientByProxyIp.get(address);
+          if (!owner || owner === clientIp) {
+            entry = { address, connections: 0 };
+            proxyIpByClient.set(clientIp, entry);
+            clientByProxyIp.set(address, clientIp);
+            break;
+          }
+          host = (host % 65534) + 1;
+        }
+        if (!entry) throw new Error('No free loopback aliases for browser clients');
+      }
+      entry.connections++;
+      return entry.address;
+    };
+    const releaseProxyIp = (clientIp) => {
+      const entry = proxyIpByClient.get(clientIp);
+      if (!entry) return;
+      if (--entry.connections === 0) {
+        proxyIpByClient.delete(clientIp);
+        clientByProxyIp.delete(entry.address);
+      }
+    };
+
     // Allowed rAthena targets (security: only explicitly listed game servers).
     // Override via WS_ALLOWED_TARGETS (comma-separated host:port) for deployments
     // that cannot use host networking (Kubernetes, Docker Desktop on macOS/Windows,
@@ -186,7 +242,17 @@ async function startServer() {
       }
 
       logger.info(`WS proxy: connecting to ${target}`);
-      const tcp = net.connect(targetPort, host);
+      const clientIp = getClientIp(req);
+      let proxyIp;
+      try {
+        proxyIp = acquireProxyIp(clientIp);
+      } catch (err) {
+        logger.error(`WS proxy: could not assign client address: ${err.message}`);
+        ws.close();
+        return;
+      }
+      logger.info(`WS proxy: ${clientIp} mapped to ${proxyIp}`);
+      const tcp = net.connect({ port: targetPort, host, localAddress: proxyIp });
       tcp.setNoDelay(true);
 
       // Buffer messages received before the TCP connection is established.
@@ -205,6 +271,7 @@ async function startServer() {
         if (cleaned) return;
         cleaned = true;
         logger.info(`WS proxy: closed ${target} (${reason})`);
+        releaseProxyIp(clientIp);
         if (!tcp.destroyed) tcp.destroy();
         if (ws.readyState === WebSocket.OPEN) ws.close();
       };
