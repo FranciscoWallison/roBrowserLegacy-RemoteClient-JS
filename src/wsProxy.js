@@ -15,6 +15,82 @@ const DEFAULT_ALLOWED_TARGETS = [
   '127.0.0.1:5121', // Map
 ];
 
+// rAthena enforces max_clients_per_ip against the TCP source address. A web
+// proxy otherwise makes every browser player appear to come from its own IP.
+// Bind each visitor's game sockets to a stable loopback alias so the server's
+// existing per-IP limit continues to apply to browser clients.
+const PROXY_IP_GRACE_MS = 10 * 60 * 1000;
+
+function normalizeIp(value) {
+  if (typeof value !== 'string') return '';
+  const ip = value.trim().replace(/^::ffff:/i, '');
+  return net.isIP(ip) ? ip : '';
+}
+
+function isLoopback(value) {
+  const ip = normalizeIp(value);
+  return ip === '::1' || ip.startsWith('127.');
+}
+
+function getClientIp(req) {
+  const peer = normalizeIp(req.socket.remoteAddress || '');
+  // The production Caddy hop is local. Do not trust forwarding headers from
+  // any direct peer, where a client could forge them.
+  if (isLoopback(peer)) {
+    const cloudflareIp = normalizeIp(req.headers['cf-connecting-ip']);
+    if (cloudflareIp) return cloudflareIp;
+  }
+  return peer || '127.0.0.1';
+}
+
+function createProxyIpAllocator() {
+  const byClient = new Map();
+  const byAddress = new Map();
+
+  function acquire(clientIp) {
+    const now = Date.now();
+    for (const [ip, entry] of byClient) {
+      if (entry.connections === 0 && entry.expiresAt <= now) {
+        byClient.delete(ip);
+        byAddress.delete(entry.address);
+      }
+    }
+
+    let entry = byClient.get(clientIp);
+    if (!entry) {
+      // Use 127.1.0.1–127.1.255.254; leave 127.0.0.1 for local services.
+      let hash = 2166136261;
+      for (const char of clientIp) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619) >>> 0;
+      let host = (hash % 65534) + 1;
+      for (let i = 0; i < 65534; i++) {
+        const address = `127.1.${host >>> 8}.${host & 255}`;
+        const owner = byAddress.get(address);
+        if (!owner || owner === clientIp) {
+          entry = { address, connections: 0, expiresAt: 0 };
+          byClient.set(clientIp, entry);
+          byAddress.set(address, clientIp);
+          break;
+        }
+        host = (host % 65534) + 1;
+      }
+      if (!entry) throw new Error('No free loopback aliases for browser clients');
+    }
+
+    entry.connections++;
+    entry.expiresAt = now + PROXY_IP_GRACE_MS;
+    return entry.address;
+  }
+
+  function release(clientIp) {
+    const entry = byClient.get(clientIp);
+    if (!entry) return;
+    entry.connections = Math.max(0, entry.connections - 1);
+    entry.expiresAt = Date.now() + PROXY_IP_GRACE_MS;
+  }
+
+  return { acquire, release };
+}
+
 /**
  * Parse WS_ALLOWED_TARGETS (comma-separated host:port). Override it for deployments that cannot use
  * host networking (Kubernetes, Docker Desktop on macOS/Windows, remote rAthena hosts). The
@@ -56,6 +132,7 @@ function attachWsProxy(server, {
   maxPendingBytes = 256 * 1024,
 }) {
   const wss = new WebSocketServer({ noServer: true, maxPayload });
+  const proxyIpAllocator = createProxyIpAllocator();
 
   server.on('upgrade', (req, socket, head) => {
     if (!req.url.startsWith('/ws/')) {
@@ -101,7 +178,16 @@ function attachWsProxy(server, {
     }
 
     logger.info(`WS proxy: connecting to ${target}`);
-    const tcp = net.connect(targetPort, host);
+    const clientIp = getClientIp(req);
+    let proxyIp;
+    try {
+      proxyIp = proxyIpAllocator.acquire(clientIp);
+    } catch (err) {
+      logger.error(`WS proxy: could not assign client address: ${err.message}`);
+      ws.close(1011);
+      return;
+    }
+    const tcp = net.connect({ port: targetPort, host, localAddress: proxyIp });
     tcp.setNoDelay(true);
 
     // Buffer messages received before the TCP connection is established.
@@ -122,6 +208,7 @@ function attachWsProxy(server, {
       cleaned = true;
       clearTimeout(connectTimer);
       logger.info(`WS proxy: closed ${target} (${reason})`);
+      proxyIpAllocator.release(clientIp);
       if (!tcp.destroyed) tcp.destroy();
       if (ws.readyState === WebSocket.OPEN) ws.close(code);
     };

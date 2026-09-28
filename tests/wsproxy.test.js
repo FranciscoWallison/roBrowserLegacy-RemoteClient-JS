@@ -45,8 +45,8 @@ test.after(async () => {
   await new Promise((r) => proxy.close(r));
 });
 
-function open(target) {
-  return new WebSocket(`ws://127.0.0.1:${proxyPort}/ws/${target}`);
+function open(target, options = {}) {
+  return new WebSocket(`ws://127.0.0.1:${proxyPort}/ws/${target}`, options);
 }
 
 /** Resolve with the close event's code once the socket closes. */
@@ -64,6 +64,29 @@ test('relays bytes both ways to an allowed target', async () => {
   await closed(ws);
 });
 
+test('uses the trusted Cloudflare client IP as a stable, distinct game-server source address', async () => {
+  async function sourceAddressFor(clientIp) {
+    const accepted = new Promise((resolve) => rathena.once('connection', (socket) => resolve(socket.remoteAddress)));
+    const ws = open(`127.0.0.1:${rathenaPort}`, {
+      origin: GAME_ORIGIN,
+      headers: { 'cf-connecting-ip': clientIp },
+    });
+    await new Promise((resolve) => ws.once('open', resolve));
+    const address = await accepted;
+    ws.close();
+    await closed(ws);
+    return address.replace(/^::ffff:/i, '');
+  }
+
+  const first = await sourceAddressFor('198.51.100.10');
+  const sameClient = await sourceAddressFor('198.51.100.10');
+  const otherClient = await sourceAddressFor('203.0.113.20');
+  assert.match(first, /^127\.1\./);
+  assert.strictEqual(sameClient, first, 'the same visitor should retain its source address across login/char/map sockets');
+  assert.match(otherClient, /^127\.1\./);
+  assert.notStrictEqual(otherClient, first, 'different visitors should have different source addresses');
+});
+
 test('buffers a packet sent before the TCP connection is up', async () => {
   // roBrowser sends its first packet synchronously in onopen, racing net.connect(). Dropping it hangs
   // the login screen. On loopback the connect completes almost instantly, so the race never happens on
@@ -74,7 +97,8 @@ test('buffers a packet sent before the TCP connection is up', async () => {
   // harness rather than exercising the proxy.
   const realConnect = net.connect;
   net.connect = (...args) => {
-    if (args[0] !== rathenaPort) return realConnect(...args);
+    const targetPort = typeof args[0] === 'object' ? args[0].port : args[0];
+    if (targetPort !== rathenaPort) return realConnect(...args);
     const socket = new net.Socket();
     setTimeout(() => {
       if (!socket.destroyed) socket.connect(...args);
@@ -198,7 +222,10 @@ test('a frame larger than maxPayload closes the connection (1009)', async () => 
 /** Make the proxy's own dial to the fake server hang, as a game server that drops packets would. */
 function withHangingConnect(fn) {
   const realConnect = net.connect;
-  net.connect = (...args) => (args[0] === rathenaPort ? new net.Socket() : realConnect(...args));
+  net.connect = (...args) => {
+    const targetPort = typeof args[0] === 'object' ? args[0].port : args[0];
+    return targetPort === rathenaPort ? new net.Socket() : realConnect(...args);
+  };
   return fn().finally(() => { net.connect = realConnect; });
 }
 
