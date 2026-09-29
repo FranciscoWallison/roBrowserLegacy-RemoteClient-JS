@@ -27,6 +27,7 @@ Com o **Modo Servidor Unificado**, este unico processo Node.js substitui tres se
   - [Cache LRU de Arquivos](#cache-lru-de-arquivos)
   - [Aquecimento de Cache](#aquecimento-de-cache)
   - [Indice de Arquivos GRF](#indice-de-arquivos-grf)
+  - [Uma Leitura por Arquivo GRF](#uma-leitura-por-arquivo-grf)
   - [Headers de Cache HTTP](#headers-de-cache-http)
   - [Compressao de Respostas](#compressao-de-respostas)
   - [Auto-Extracao para Disco](#auto-extracao-para-disco)
@@ -401,6 +402,25 @@ Na inicializacao, o servidor constroi um indice unificado de todos os arquivos G
 - Integracao com mapeamento de paths para resolucao Coreano → GRF
 - Estatisticas do indice disponiveis via `/api/cache-stats`
 
+### Uma Leitura por Arquivo GRF
+
+O validador de inicializacao e o indice de arquivos rodam ao mesmo tempo e leem os mesmos GRFs. Cada um
+abria e parseava a sua propria copia — o validador duas vezes, contando a checagem de encoding —, entao a
+tabela de arquivos de cada GRF era parseada tres vezes e ficavam tres copias dela na memoria.
+
+O `src/utils/grfArchive.js` mantem um arquivo aberto e carregado por caminho: quem chegar primeiro comeca
+a carga, os outros esperam a mesma promessa, e o `closeArchives()` libera os descritores no desligamento.
+Carga que falha nao fica em cache, entao a proxima chamada pode tentar de novo.
+
+- O cache do proprio leitor fica desligado (`cacheMaxFiles: 0`): este servidor ja guarda os arquivos
+  decodificados, com orcamento de bytes e os ETags que as respostas usam; dois caches guardariam o mesmo
+  arquivo duas vezes.
+- As grafias que o cliente pede vem dos bytes gravados no GRF (`rawNameBytes`), e nao de re-encodar o nome
+  decodificado para CP949 — um nome cujos bytes nenhum encoder produz de novo era indexado como
+  `data\??.txt` e ficava inalcancavel.
+- Boot com um `data.grf` de 3,27 GiB (205.404 arquivos, 771.268 caminhos indexados): **5,8 s → 1,7 s**,
+  dos quais o indice leva ~0,9 s.
+
 ### Headers de Cache HTTP
 
 Assets estaticos do jogo recebem headers de cache apropriados para cache no navegador:
@@ -412,6 +432,13 @@ Assets estaticos do jogo recebem headers de cache apropriados para cache no nave
 | 304 Not Modified | — | Pular re-download se nao mudou |
 | Last-Modified | *(nao enviado)* | Era a hora da resposta, entao todo arquivo parecia mudar a cada requisicao; quem valida e o ETag |
 | Accept-Ranges / 206 | `bytes` | So `.mp3`, `.wav` e `.ogg`: deixa o elemento `<audio>` que toca a BGM avancar e voltar. Respeita `If-Range` |
+
+**Editar um arquivo que o servidor le do disco** (`DATA_OVERRIDE_PATH`, `SYSTEM_PATH`, as pastas de asset
+do projeto) nao chega em quem ja baixou: o cache do servidor nao olha a data do arquivo, a resposta vale
+um dia como `immutable`, e o roBrowser ainda guarda no armazenamento FileSystem do navegador tudo o que
+baixa e le de la primeiro. Reinicie o servidor e limpe esse armazenamento — no console do navegador:
+`webkitRequestFileSystem(0, 1e9, fs => fs.root.createReader().readEntries(es => es.forEach(e =>
+e.removeRecursively(() => {}, () => {}))))`.
 
 ### Compressao de Respostas
 
